@@ -321,10 +321,5 @@ namespace SETUE
             KhrSwapchain.QueuePresent(GraphicsQueue, &present);
             CurrentFrame = (CurrentFrame + 1) % MaxFrames;
         }
-        // Scheduler-friendly parameterless surface creation
-        public static void CreateSurface()
-        {
-            CreateSurfaceFromSDL(SETUE.Window.GetHandle());
-        }
     }
 }
