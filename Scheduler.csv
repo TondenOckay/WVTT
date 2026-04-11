@@ -1,0 +1,10 @@
+order,system,method
+1,SETUE.Controls.Input,Flush
+2,SETUE.Controls.Camera,Update
+3,SETUE.Controls.Selection,Update
+4,SETUE.UI.SceneTree,Update
+5,SETUE.Systems.Texts,Update
+6,SETUE.Scene.Scene3D,Update
+7,SETUE.Scene.Scene2D,Update
+8,SETUE.RenderEngine.Draw,Execute
+9,SETUE.Window,Update

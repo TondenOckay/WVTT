@@ -1,0 +1,14 @@
+SystemName,LogLoad,LogUpdate,LogErrors,Verbose
+SETUE.Window,true,true,true,true
+SETUE.Vulkan,true,true,true,true
+SETUE.Systems.Panels,true,true,true,false
+SETUE.Draw,true,true,true,false
+SETUE.Controls.Selection,true,true,true,false
+SETUE.Controls.Camera,true,true,true,false
+SETUE.UI.SceneTree,true,true,true,false
+SETUE.Systems.Texts,true,true,true,false
+SETUE.Objects3D.Objects,true,true,true,false
+SETUE.UI.Fonts,true,true,true,false
+SETUE.Controls.Input,true,true,true,false
+SETUE.Render,true,true,true,false
+SETUE.Core.Debug,true,true,true,false

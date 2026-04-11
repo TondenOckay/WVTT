@@ -1,0 +1,2 @@
+id,orbit_speed,pan_speed,zoom_speed,invert_x,invert_y
+main,0.4,0.01,0.5,true,true

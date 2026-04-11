@@ -1,0 +1,6 @@
+command_name,enabled,description
+Begin_Frame,true,Start frame rendering
+Draw_Meshes,true,Draw 3D meshes
+Draw_UI,true,Draw UI panels
+Draw_Text,true,Draw text on panels
+End_Frame,true,Finish frame rendering

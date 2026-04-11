@@ -1,0 +1,2 @@
+panel_id,row_height,padding_x,padding_y,row_r,row_g,row_b,selected_r,selected_g,selected_b,hover_r,hover_g,hover_b,font_id,text_r,text_g,text_b,indent_width
+left_panel,24,8,8,0.18,0.18,0.24,0.3,0.5,0.8,0.22,0.22,0.3,default,1.0,1.0,1.0,12

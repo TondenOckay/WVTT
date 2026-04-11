@@ -1,0 +1,2 @@
+ID,Type,Enabled,Description
+core,SETUE.VulkanHandlers_Core,true,Instance / Device / Swapchain / RenderPass / Pipeline

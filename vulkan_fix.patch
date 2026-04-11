@@ -1,0 +1,14 @@
+--- a/Render Engine/Vulkan.cs
++++ b/Render Engine/Vulkan.cs
+@@ -160,7 +160,7 @@
+             var appNamePtr = SilkMarshal.StringToPtr(appName);
+             var engineNamePtr = SilkMarshal.StringToPtr(engineName);
+             var extPtr = SilkMarshal.StringArrayToPtr(allExts);
+-            var layerPtr = layers.Length > 0 ? SilkMarshal.StringArrayToPtr(layers) : null;
++            nint layerPtr = layers.Length > 0 ? SilkMarshal.StringArrayToPtr(layers) : 0;
+             var appInfo = new ApplicationInfo { SType = StructureType.ApplicationInfo, PApplicationName = (byte*)appNamePtr, ApplicationVersion = new Version32(1,0,0), PEngineName = (byte*)engineNamePtr, EngineVersion = new Version32(1,0,0), ApiVersion = apiVersion };
+             var createInfo = new InstanceCreateInfo { SType = StructureType.InstanceCreateInfo, PApplicationInfo = &appInfo, EnabledExtensionCount = (uint)allExts.Length, PpEnabledExtensionNames = (byte**)extPtr, EnabledLayerCount = (uint)layers.Length, PpEnabledLayerNames = layers.Length > 0 ? (byte**)layerPtr : null };
+             var result = _vk.CreateInstance(&createInfo, null, out _instance);
+@@ -168,7 +168,7 @@
+             SilkMarshal.Free((nint)appNamePtr); SilkMarshal.Free((nint)engineNamePtr); SilkMarshal.Free(extPtr); if (layerPtr != null) SilkMarshal.Free((nint)layerPtr);
+         }

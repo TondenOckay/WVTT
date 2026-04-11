@@ -1,0 +1,6 @@
+ComponentName,CSVPath,Enabled
+Position,3d Editor/Object.csv,true
+Mesh,3d Editor/Object.csv,true
+Camera,3d Editor/Camera.csv,true
+Panel,Ui/Panel.csv,true
+Text,Ui/Text.csv,true

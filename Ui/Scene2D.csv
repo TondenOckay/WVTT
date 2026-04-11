@@ -1,0 +1,3 @@
+id,enabled,order,data_source,item_filter,mesh_source,transform_source,color_source
+draw_panels,true,10,panels,,fixed:quad,panel_rect,panel_color
+draw_texts,true,20,texts,,text_glyph,text_glyph,text_color

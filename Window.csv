@@ -1,0 +1,11 @@
+Setting,Value
+Backend,SDL3
+Title,Forge Engine
+Width,1920
+Height,1080
+Resizable,false
+Fullscreen,false
+VSync,true
+UseVulkan,true
+VulkanConfigPath,Render Engine/VulkanDevice.csv
+WindowFlags,Vulkan

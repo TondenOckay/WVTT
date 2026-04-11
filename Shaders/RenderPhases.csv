@@ -1,0 +1,6 @@
+Phase_ID,Command_Name,Pipeline_ID,Enabled,Dependency_ID,Description
+0,Begin_Frame,,true,None,Start frame
+1,Draw_Meshes,,true,0,Draw all 3D meshes
+2,Draw_UI,,true,1,Draw UI panels
+3,Draw_Text,,true,2,Draw text on panels
+4,End_Frame,,true,3,Finish frame

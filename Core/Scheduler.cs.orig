@@ -1,0 +1,166 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Reflection;
+
+namespace SETUE.Core
+{
+    public class SchedulerEntry
+    {
+        public string ClassName    { get; set; } = "";
+        public string Method       { get; set; } = "";
+        public string Loop         { get; set; } = "";
+        public string Hub          { get; set; } = "";
+        public int    RunOrder     { get; set; }
+        public float  TimeSlot     { get; set; }
+        public float  FrequencySec { get; set; }
+        public bool   Enabled      { get; set; }
+        public bool   Log          { get; set; }
+    }
+
+    public static class Schedulers
+    {
+        private static List<SchedulerEntry> _entries = new();
+        private static Dictionary<string, double> _lastRunTimes = new();
+        private static bool _bootRun = false;
+
+        public static void Load()
+        {
+            string path = "Core/Scheduler.csv";
+            _entries.Clear();
+
+            if (!File.Exists(path))
+            {
+                Console.WriteLine($"[Schedulers] Missing {path}");
+                return;
+            }
+
+            var lines = File.ReadAllLines(path);
+            if (lines.Length < 2) return;
+
+            var headers = lines[0].Split(',');
+            int idxClass   = Array.IndexOf(headers, "ClassName");
+            int idxMethod  = Array.IndexOf(headers, "Method");
+            int idxLoop    = Array.IndexOf(headers, "Loop");
+            int idxHub     = Array.IndexOf(headers, "Hub");
+            int idxRun     = Array.IndexOf(headers, "RunOrder");
+            int idxSlot    = Array.IndexOf(headers, "TimeSlot");
+            int idxFreq    = Array.IndexOf(headers, "FrequencySec");
+            int idxEnabled = Array.IndexOf(headers, "Enabled");
+            int idxLog     = Array.IndexOf(headers, "Log");
+
+            for (int i = 1; i < lines.Length; i++)
+            {
+                var line = lines[i].Trim();
+                if (string.IsNullOrEmpty(line) || line.StartsWith('#')) continue;
+                var parts = line.Split(',');
+
+                string Get(int idx) => idx >= 0 && idx < parts.Length ? parts[idx].Trim() : "";
+
+                _entries.Add(new SchedulerEntry
+                {
+                    ClassName    = Get(idxClass),
+                    Method       = Get(idxMethod),
+                    Loop         = Get(idxLoop),
+                    Hub          = Get(idxHub),
+                    RunOrder     = int.TryParse(Get(idxRun), out int ro) ? ro : 0,
+                    TimeSlot     = float.TryParse(Get(idxSlot), out float ts) ? ts : 0f,
+                    FrequencySec = float.TryParse(Get(idxFreq), out float fs) ? fs : 0f,
+                    Enabled      = Get(idxEnabled) == "1",
+                    Log          = Get(idxLog) == "1"
+                });
+            }
+
+            Console.WriteLine($"[Schedulers] Loaded {_entries.Count} systems");
+        }
+
+        // Called once by MasterClock on the scheduler thread before the main loop
+        public static void RunBoot()
+        {
+            if (_entries.Count == 0) Load();
+
+            var bootEntries = _entries
+                .Where(e => e.Loop == "Boot" && e.Enabled)
+                .OrderBy(e => e.TimeSlot)                // 0 = first
+                .ThenBy(e => e.Loop)
+                .ThenBy(e => e.Hub)
+                .ThenBy(e => e.RunOrder)
+                .ThenBy(e => e.ClassName);
+
+            foreach (var entry in bootEntries)
+            {
+                if (entry.Log)
+                    Console.WriteLine($"[Scheduler] Boot: {entry.ClassName}.{entry.Method}");
+                InvokeSystem(entry);
+                _lastRunTimes[entry.ClassName + "." + entry.Method] = MasterClock.CurrentTime;
+            }
+            _bootRun = true;
+        }
+
+        // Called every tick by MasterClock
+        public static void Update(double currentTime)
+        {
+            if (_entries.Count == 0) Load();
+
+            var regularEntries = _entries
+                .Where(e => e.Loop != "Boot" && e.Enabled && !string.IsNullOrEmpty(e.Loop))
+                .OrderBy(e => e.TimeSlot)                // FIXED: 0 = first
+                .ThenBy(e => e.Loop)
+                .ThenBy(e => e.Hub)
+                .ThenBy(e => e.RunOrder)
+                .ThenBy(e => e.ClassName);
+
+            foreach (var entry in regularEntries)
+            {
+                string key = entry.ClassName + "." + entry.Method;
+                if (!_lastRunTimes.TryGetValue(key, out double lastRun))
+                    lastRun = 0;
+
+                if (entry.FrequencySec > 0 && (currentTime - lastRun) < entry.FrequencySec)
+                    continue;
+
+                if (entry.Log)
+                    Console.WriteLine($"[Scheduler] {entry.ClassName}.{entry.Method} (Slot={entry.TimeSlot}, Loop={entry.Loop}, Hub={entry.Hub}, Order={entry.RunOrder})");
+
+                InvokeSystem(entry);
+                _lastRunTimes[key] = currentTime;
+            }
+        }
+
+        private static void InvokeSystem(SchedulerEntry entry)
+        {
+            try
+            {
+                // DEBUG: Special logging for Vulkan.DoDrawFrame
+                if (entry.ClassName == "SETUE.Vulkan" && entry.Method == "DoDrawFrame")
+                {
+                    Console.WriteLine("[Schedulers] DEBUG: About to invoke Vulkan.DoDrawFrame");
+                    Console.Out.Flush();
+                }
+
+                Type? type = Type.GetType(entry.ClassName);
+                if (type == null)
+                {
+                    Console.WriteLine($"[Schedulers] Type not found: {entry.ClassName}");
+                    return;
+                }
+
+                MethodInfo? method = type.GetMethod(entry.Method,
+                    BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
+                if (method == null)
+                {
+                    Console.WriteLine($"[Schedulers] Method {entry.Method} not found in {entry.ClassName}");
+                    return;
+                }
+
+                method.Invoke(null, null);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Schedulers] Error invoking {entry.ClassName}.{entry.Method}: {ex.InnerException?.Message ?? ex.Message}");
+                Console.Out.Flush();
+            }
+        }
+    }
+}
