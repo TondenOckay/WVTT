@@ -2,8 +2,8 @@ id,vert_shader,frag_shader,topology,cull_mode,depth_test,depth_write,depth_compa
 rect_pipeline,Shaders/mesh.vert.spv,Shaders/mesh.frag.spv,triangle_list,none,false,false,less,false,false,144,2d,true,true,src_alpha,one_minus_src_alpha,add,one,zero,add
 mesh_pipeline,Shaders/mesh.vert.spv,Shaders/mesh.frag.spv,triangle_list,none,false,true,less,false,false,144,3d,false,false,one,zero,add,one,zero,add
 custom_pipeline,Shaders/mesh.vert.spv,Shaders/mesh.frag.spv,triangle_list,none,true,true,less,false,false,144,custom,false,false,one,zero,add,one,zero,add
-mesh_pipeline_back,Shaders/mesh.vert.spv,Shaders/mesh.frag.spv,triangle_list,none,false,true,less,false,false,144,3d,false,false,one,zero,add,one,zero,add
+mesh_pipeline_back,Shaders/mesh.vert.spv,Shaders/mesh.frag.spv,triangle_list,back,false,true,less,false,false,144,3d,false,false,one,zero,add,one,zero,add
 mesh_pipeline_front,Shaders/mesh.vert.spv,Shaders/mesh.frag.spv,triangle_list,none,false,true,less,false,false,144,3d,false,false,one,zero,add,one,zero,add
-grid_pipeline,Shaders/mesh.vert.spv,Shaders/mesh.frag.spv,triangle_list,none,false,true,less,false,false,144,3d,false,false,one,zero,add,one,zero,add
+grid_pipeline,Shaders/mesh.vert.spv,Shaders/mesh.frag.spv,line_list,none,false,true,less,false,false,144,3d,false,false,one,zero,add,one,zero,add
 axis_pipeline,Shaders/axis.vert.spv,Shaders/axis.frag.spv,line_list,none,false,true,less,false,false,144,3d,false,false,one,zero,add,one,zero,add
 text_pipeline,Shaders/text.vert.spv,Shaders/text.frag.spv,triangle_list,none,false,false,less,false,false,144,2d,true,true,src_alpha,one_minus_src_alpha,add,one,zero,add

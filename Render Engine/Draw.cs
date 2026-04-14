@@ -94,7 +94,16 @@ namespace SETUE
                 drawCount3D++;
                 var material = world.GetComponent<MaterialComponent>(e);
 
-                VK.CmdBindPipeline(cmd, PipelineBindPoint.Graphics, pipeline);
+                // Use the pipeline assigned to this specific object
+                if (!Shaders.All.TryGetValue(material.PipelineId, out var objShader))
+                {
+                    Console.WriteLine($"[Draw] Pipeline '{material.PipelineId}' not found for entity {e}");
+                    continue;
+                }
+                var objPipeline = objShader.Handle;
+                var objLayout   = objShader.Layout;
+
+                VK.CmdBindPipeline(cmd, PipelineBindPoint.Graphics, objPipeline);
 
                 VkBuffer vbuf = new VkBuffer { Handle = (ulong)mesh.VertexBuffer };
                 VkBuffer ibuf = new VkBuffer { Handle = (ulong)mesh.IndexBuffer };
@@ -108,10 +117,11 @@ namespace SETUE
                     Model = Matrix4x4.Identity,
                     Color = material.Color
                 };
-                VK.CmdPushConstants(cmd, layout, ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit | ShaderStageFlags.FragmentBit, 0, (uint)sizeof(PushConstants), &pc);
+                VK.CmdPushConstants(cmd, objLayout, ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit, 0, (uint)sizeof(PushConstants), &pc);
 
                 VK.CmdDrawIndexed(cmd, mesh.IndexCount, 1, 0, 0, 0);
             }
+
             Console.WriteLine($"[Draw] Drew {drawCount3D} 3D objects");
         }
 

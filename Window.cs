@@ -1,5 +1,7 @@
 using System;
 using SDL3;
+using SETUE.Controls;
+using SETUE.Core;
 
 namespace SETUE
 {
@@ -7,6 +9,7 @@ namespace SETUE
     {
         private static nint _window;
         private static bool _shouldQuit;
+        private static bool _relativeMouseActive = false;
 
         public static IntPtr GetHandle() => _window;
         public static bool ShouldQuit() => _shouldQuit;
@@ -33,9 +36,29 @@ namespace SETUE
         {
             while (SDL.PollEvent(out var ev))
             {
+                Input.ProcessEvent(ev);
+
+                if (ev.Type == (uint)SDL.EventType.MouseButtonDown)
+                {
+                    if ((ev.Button.Button == 2 || ev.Button.Button == 3) && !_relativeMouseActive)
+                    {
+                        SDL.SetWindowRelativeMouseMode(_window, true);
+                        _relativeMouseActive = true;
+                    }
+                }
+                if (ev.Type == (uint)SDL.EventType.MouseButtonUp)
+                {
+                    if ((ev.Button.Button == 2 || ev.Button.Button == 3) && _relativeMouseActive)
+                    {
+                        SDL.SetWindowRelativeMouseMode(_window, false);
+                        _relativeMouseActive = false;
+                    }
+                }
+
                 if ((SDL.EventType)ev.Type == SDL.EventType.Quit)
                     _shouldQuit = true;
             }
+
             if (_shouldQuit)
             {
                 Console.WriteLine("[Window] Quit requested, exiting...");

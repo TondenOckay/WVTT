@@ -157,11 +157,6 @@ namespace SETUE
                 PpEnabledExtensionNames = (byte**)extPtr
             };
 
-PhysicalDeviceFeatures features = new PhysicalDeviceFeatures
-{
-    WideLines = true
-};
-deviceCreate.PEnabledFeatures = &features;
             var result = Vulkan.VK.CreateDevice(Vulkan.PhysicalDevice, &deviceCreate, null, out var device);
             Vulkan.Device = device;
             Console.WriteLine(result == Result.Success ? "[Vulkan] Device OK" : $"[Vulkan] Device FAILED: {result}");

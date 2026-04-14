@@ -10,3 +10,4 @@ SETUE.RenderEngine.MeshBuffer,true,true,true,true
 SETUE.RenderEngine.MeshBuffer,true,true,true,true
 SETUE.Scene.Scene2D,true,true,true,true
 SETUE.Systems.Panels,true,true,true,true
+Input,true,true,true,true
