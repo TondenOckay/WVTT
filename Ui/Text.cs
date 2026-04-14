@@ -73,6 +73,23 @@ namespace SETUE.Systems
                     Scale = Vector3.One,
                     Rotation = Quaternion.Identity
                 });
+
+                // Position text relative to its parent panel
+                if (!string.IsNullOrEmpty(panelId) && Panels.All.TryGetValue(panelId, out var panel))
+                {
+                    float padding = 10f;
+                    float x = panel.X + padding;
+                    float y = panel.Y + panel.Height * 0.5f;
+
+                    if (align == "center")
+                        x = panel.X + panel.Width * 0.5f;
+                    else if (align == "right")
+                        x = panel.X + panel.Width - padding;
+
+                    var transform = world.GetComponent<TransformComponent>(e);
+                    transform.Position = new Vector3(x, y, 0);
+                    world.SetComponent(e, transform);
+                }
             }
             Console.WriteLine($"[Texts] Loaded {world.Query<TextComponent>().Count()} text entities");
         }

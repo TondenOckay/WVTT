@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Numerics;
 using SETUE.ECS;
 
@@ -32,7 +33,7 @@ namespace SETUE.Controls
         private static Dictionary<Entity, (Vector3 pos, Vector3 scale)> _originalTransforms = new();
         private static Entity? _draggedEntity;
 
-        public static bool LastHitWasPanel { get; private set; } = false;
+        public static bool LastHitWasPanel { get; private set; }
         public static string LastHitPanelId { get; private set; } = "";
 
         public static void Load()
@@ -40,23 +41,18 @@ namespace SETUE.Controls
             string path = "Controls/Selection.csv";
             if (!File.Exists(path)) { Console.WriteLine($"[Selection] Missing {path}"); return; }
             var lines = File.ReadAllLines(path);
-            var headers = lines[0].Split(',');
+            if (lines.Length == 0) return;
 
-            int idxId = Array.IndexOf(headers, "id");
-            int idxAction = Array.IndexOf(headers, "input_action");
-            int idxHitType = Array.IndexOf(headers, "hit_test_type");
-            int idxHitValue = Array.IndexOf(headers, "hit_test_value");
-            int idxOnClick = Array.IndexOf(headers, "on_click_operation");
-            int idxDragTarget = Array.IndexOf(headers, "drag_target");
-            int idxDragProp = Array.IndexOf(headers, "drag_property");
-            int idxDragSrc = Array.IndexOf(headers, "drag_input_source");
-            int idxDragMult = Array.IndexOf(headers, "drag_multiplier");
-            int idxDragMin = Array.IndexOf(headers, "drag_min");
-            int idxDragMax = Array.IndexOf(headers, "drag_max");
-            int idxMoveWith = Array.IndexOf(headers, "move_with");
-            int idxMoveEdge = Array.IndexOf(headers, "move_edge");
-            int idxConsume = Array.IndexOf(headers, "consume_input");
-            int idxRaycast = Array.IndexOf(headers, "raycast_enabled");
+            var headers = lines[0].Split(',');
+            int GetIdx(string name) => Array.IndexOf(headers, name);
+
+            int idxId = GetIdx("id"), idxAction = GetIdx("input_action"), idxHitType = GetIdx("hit_test_type"),
+                idxHitValue = GetIdx("hit_test_value"), idxOnClick = GetIdx("on_click_operation"),
+                idxDragTarget = GetIdx("drag_target"), idxDragProp = GetIdx("drag_property"),
+                idxDragSrc = GetIdx("drag_input_source"), idxDragMult = GetIdx("drag_multiplier"),
+                idxDragMin = GetIdx("drag_min"), idxDragMax = GetIdx("drag_max"),
+                idxMoveWith = GetIdx("move_with"), idxMoveEdge = GetIdx("move_edge"),
+                idxConsume = GetIdx("consume_input"), idxRaycast = GetIdx("raycast_enabled");
 
             _rules.Clear();
             for (int i = 1; i < lines.Length; i++)
@@ -90,37 +86,18 @@ namespace SETUE.Controls
 
         public static void Update()
         {
-            if (Input.IsEditing)
-            {
-                if (Input.EditConfirmed || Input.EditCancelled)
-                {
-                    if (Input.EditConfirmed)
-                    {
-                        Console.WriteLine($"[Selection] Edit confirmed: {Input.EditBuffer}");
-                    }
-                    Input.EndEdit();
-                }
-            }
-
-            var world = Object.ECSWorld; // Changed from ObjectLoader
+            if (Input.IsEditing) { HandleEdit(); return; }
+            var world = Object.ECSWorld;
 
             if (_activeDragRule != null && _draggedEntity != null)
             {
                 if (Input.IsActionHeld(_activeDragRule.InputAction))
                 {
-                    float rawDelta = Input.MousePos.X - _dragLastMouseX;
-                    ApplyDrag(world, rawDelta);
+                    ApplyDrag(world, Input.MousePos.X - _dragLastMouseX);
                     _dragLastMouseX = Input.MousePos.X;
+                    if (_activeDragRule.ConsumeInput) Input.Consume(_activeDragRule.InputAction);
                 }
-                else
-                {
-                    _activeDragRule = null;
-                    _draggedEntity = null;
-                    _originalTransforms.Clear();
-                    Console.WriteLine("[Selection] Drag ended");
-                }
-                if (_activeDragRule?.ConsumeInput == true)
-                    Input.Consume(_activeDragRule.InputAction);
+                else EndDrag();
                 return;
             }
 
@@ -132,272 +109,267 @@ namespace SETUE.Controls
                 if (!Input.IsActionPressed(rule.InputAction)) continue;
                 var mouse = Input.MousePos;
 
-                Entity? hitPanelEntity = null;
-                PanelComponent hitPanelComp = default;
-                TransformComponent hitPanelTransform = default;
+                (Entity? hitEntity, PanelComponent panel, TransformComponent trans) = (null, default, default);
+                bool isViewportHit = false;
 
                 if (rule.HitTestType == "panel_prefix")
                 {
-                    foreach (var (e, trans, panel) in world.Query<TransformComponent, PanelComponent>())
-                    {
-                        if (!panel.Visible) continue;
-                        if (!panel.Id.StartsWith(rule.HitTestValue)) continue;
-
-                        float left = trans.Position.X - trans.Scale.X * 0.5f;
-                        float top = trans.Position.Y - trans.Scale.Y * 0.5f;
-                        float right = left + trans.Scale.X;
-                        float bottom = top + trans.Scale.Y;
-
-                        if (mouse.X >= left && mouse.X <= right && mouse.Y >= top && mouse.Y <= bottom)
-                        {
-                            hitPanelEntity = e;
-                            hitPanelComp = panel;
-                            hitPanelTransform = trans;
-                            break;
-                        }
-                    }
+                    if (string.IsNullOrEmpty(rule.HitTestValue)) continue;
+                    (hitEntity, panel, trans) = HitTestPanelPrefix(world, rule.HitTestValue, mouse);
                 }
                 else if (rule.HitTestType == "viewport")
                 {
-                    bool overPanel = false;
-                    foreach (var (e, trans, panel) in world.Query<TransformComponent, PanelComponent>())
-                    {
-                        if (!panel.Visible) continue;
-                        float left = trans.Position.X - trans.Scale.X * 0.5f;
-                        float top = trans.Position.Y - trans.Scale.Y * 0.5f;
-                        float right = left + trans.Scale.X;
-                        float bottom = top + trans.Scale.Y;
-                        if (mouse.X >= left && mouse.X <= right && mouse.Y >= top && mouse.Y <= bottom)
-                        {
-                            overPanel = true;
-                            break;
-                        }
-                    }
-                    if (!overPanel) hitPanelEntity = null;
-                    else continue;
+                    if (IsMouseOverAnyPanel(world, mouse)) continue;
+                    isViewportHit = true;
                 }
 
-                if (hitPanelEntity != null || rule.HitTestType == "viewport")
+                if (hitEntity != null || isViewportHit)
                 {
-                    LastHitWasPanel = hitPanelEntity != null;
-                    LastHitPanelId = hitPanelComp.Id ?? "";
-
-                    switch (rule.OnClickOperation)
-                    {
-                        case "select_object":
-                            if (rule.HitTestValue == "_st_" && hitPanelEntity != null)
-                            {
-                                string entityIdStr = hitPanelComp.Id.Substring(rule.HitTestValue.Length);
-                                if (int.TryParse(entityIdStr, out int id))
-                                {
-                                    foreach (var (entity, _, _) in world.Query<TransformComponent, MeshComponent>())
-                                    {
-                                        if (entity.Id == id)
-                                        {
-                                            if (!world.HasComponent<SelectedComponent>(entity))
-                                                world.AddComponent(entity, new SelectedComponent());
-                                            else
-                                                world.RemoveComponent<SelectedComponent>(entity);
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
-                            break;
-                        case "start_drag":
-                            if (hitPanelEntity != null)
-                            {
-                                _activeDragRule = rule;
-                                _draggedEntity = hitPanelEntity;
-                                _dragLastMouseX = Input.MousePos.X;
-                                var trans = world.GetComponent<TransformComponent>(_draggedEntity.Value);
-                                _originalTransforms[_draggedEntity.Value] = (trans.Position, trans.Scale);
-
-                                foreach (var (e, _, p) in world.Query<TransformComponent, PanelComponent>())
-                                {
-                                    if (p.Id == rule.MoveWith)
-                                    {
-                                        var t = world.GetComponent<TransformComponent>(e);
-                                        _originalTransforms[e] = (t.Position, t.Scale);
-                                    }
-                                }
-                                Console.WriteLine($"[Selection] Drag started on panel {hitPanelComp.Id}");
-                            }
-                            break;
-                        case "raycast":
-                            if (rule.RaycastEnabled)
-                            {
-                                var hitEntity = Raycast(world, mouse);
-                                if (hitEntity != null)
-                                {
-                                    foreach (var e in world.Query<SelectedComponent>())
-                                        world.RemoveComponent<SelectedComponent>(e);
-                                    world.AddComponent(hitEntity.Value, new SelectedComponent());
-                                }
-                                else
-                                {
-                                    foreach (var e in world.Query<SelectedComponent>())
-                                        world.RemoveComponent<SelectedComponent>(e);
-                                }
-                            }
-                            break;
-                    }
-
-                    if (rule.ConsumeInput)
-                    {
-                        Input.Consume(rule.InputAction);
-                        return;
-                    }
+                    LastHitWasPanel = hitEntity != null;
+                    LastHitPanelId = panel.Id ?? "";
+                    ExecuteOperation(rule, world, hitEntity, panel, mouse);
+                    if (rule.ConsumeInput) { Input.Consume(rule.InputAction); return; }
                 }
             }
+        }
+
+        // ─── Helpers (eliminate repetition) ─────────────────────────────────
+
+        private static bool IsMouseOverAnyPanel(World world, Vector2 mouse)
+        {
+            foreach (var (_, trans, panel) in world.Query<TransformComponent, PanelComponent>())
+                if (panel.Visible && PointInRect(mouse, trans))
+                    return true;
+            return false;
+        }
+
+        private static (Entity? entity, PanelComponent panel, TransformComponent trans)
+            HitTestPanelPrefix(World world, string prefix, Vector2 mouse)
+        {
+            foreach (var (e, trans, panel) in world.Query<TransformComponent, PanelComponent>())
+                if (panel.Visible && panel.Id.StartsWith(prefix) && PointInRect(mouse, trans))
+                    return (e, panel, trans);
+            return (null, default, default);
+        }
+
+        private static bool PointInRect(Vector2 p, TransformComponent t) =>
+            p.X >= t.Position.X - t.Scale.X * 0.5f && p.X <= t.Position.X + t.Scale.X * 0.5f &&
+            p.Y >= t.Position.Y - t.Scale.Y * 0.5f && p.Y <= t.Position.Y + t.Scale.Y * 0.5f;
+
+        private static void ExecuteOperation(SelectionRule rule, World world, Entity? hitEntity, PanelComponent panel, Vector2 mouse)
+        {
+            switch (rule.OnClickOperation)
+            {
+                case "select_object":
+                    if (hitEntity != null && rule.HitTestValue.StartsWith("_st_") &&
+                        int.TryParse(panel.Id.Substring(rule.HitTestValue.Length), out int id))
+                        ToggleSelectionById(world, id);
+                    break;
+                case "start_drag":
+                    if (hitEntity != null) StartDrag(rule, world, hitEntity.Value, panel);
+                    break;
+                case "raycast":
+                    if (rule.RaycastEnabled) RaycastSelect(world, mouse);
+                    break;
+                default:
+                    Console.WriteLine($"[Selection] Operation: {rule.OnClickOperation} on {panel.Id}");
+                    break;
+            }
+        }
+
+        private static void ToggleSelectionById(World world, int id)
+        {
+            foreach (var (entity, _, _) in world.Query<TransformComponent, MeshComponent>())
+                if (entity.Id == id)
+                {
+                    if (world.HasComponent<SelectedComponent>(entity))
+                        world.RemoveComponent<SelectedComponent>(entity);
+                    else
+                        world.AddComponent(entity, new SelectedComponent());
+                    break;
+                }
+        }
+
+        private static void StartDrag(SelectionRule rule, World world, Entity entity, PanelComponent panel)
+        {
+            _activeDragRule = rule;
+            _draggedEntity = entity;
+            _dragLastMouseX = Input.MousePos.X;
+            _originalTransforms.Clear();
+
+            var trans = world.GetComponent<TransformComponent>(entity);
+            _originalTransforms[entity] = (trans.Position, trans.Scale);
+
+            if (!string.IsNullOrEmpty(rule.MoveWith))
+                foreach (var (e, _, p) in world.Query<TransformComponent, PanelComponent>())
+                    if (p.Id == rule.MoveWith)
+                        _originalTransforms[e] = (world.GetComponent<TransformComponent>(e).Position,
+                                                 world.GetComponent<TransformComponent>(e).Scale);
+
+            Console.WriteLine($"[Selection] Drag started on {panel.Id}");
+        }
+
+        private static void EndDrag()
+        {
+            _activeDragRule = null;
+            _draggedEntity = null;
+            _originalTransforms.Clear();
+            Console.WriteLine("[Selection] Drag ended");
         }
 
         private static void ApplyDrag(World world, float rawDelta)
         {
             if (_activeDragRule == null || _draggedEntity == null) return;
             var rule = _activeDragRule;
-            var targetEntity = _draggedEntity.Value;
-            if (!world.HasComponent<TransformComponent>(targetEntity)) return;
+            var target = _draggedEntity.Value;
+            if (!world.HasComponent<TransformComponent>(target)) return;
 
-            var targetTransform = world.GetComponent<TransformComponent>(targetEntity);
+            var trans = world.GetComponent<TransformComponent>(target);
             float delta = rawDelta * rule.DragMultiplier;
             if (rule.DragInputSource == "mouse_delta_x_neg") delta = -delta;
 
-            Vector3 newPos = targetTransform.Position;
-            Vector3 newScale = targetTransform.Scale;
+            // Apply delta to the correct property using a unified helper
+            ApplyDeltaToTransform(ref trans, rule.DragProperty, delta, rule.DragMin, rule.DragMax);
+            world.SetComponent(target, trans);
 
-            switch (rule.DragProperty)
+            // Update followers
+            foreach (var r in _rules)
+                if (r.DragTarget == rule.DragTarget && !string.IsNullOrEmpty(r.MoveWith))
+                    UpdateFollower(world, r, target, trans);
+        }
+
+        private static void ApplyDeltaToTransform(ref TransformComponent t, string prop, float delta, float min, float max)
+        {
+            switch (prop)
             {
-                case "x":
-                    newPos.X += delta;
-                    if (!float.IsNaN(rule.DragMin)) newPos.X = Math.Max(newPos.X, rule.DragMin);
-                    if (!float.IsNaN(rule.DragMax)) newPos.X = Math.Min(newPos.X, rule.DragMax);
-                    break;
-                case "y":
-                    newPos.Y += delta;
-                    if (!float.IsNaN(rule.DragMin)) newPos.Y = Math.Max(newPos.Y, rule.DragMin);
-                    if (!float.IsNaN(rule.DragMax)) newPos.Y = Math.Min(newPos.Y, rule.DragMax);
-                    break;
-                case "width":
-                    newScale.X += delta;
-                    if (!float.IsNaN(rule.DragMin)) newScale.X = Math.Max(newScale.X, rule.DragMin);
-                    if (!float.IsNaN(rule.DragMax)) newScale.X = Math.Min(newScale.X, rule.DragMax);
-                    break;
-                case "height":
-                    newScale.Y += delta;
-                    if (!float.IsNaN(rule.DragMin)) newScale.Y = Math.Max(newScale.Y, rule.DragMin);
-                    if (!float.IsNaN(rule.DragMax)) newScale.Y = Math.Min(newScale.Y, rule.DragMax);
-                    break;
+                case "x":      t.Position.X = Clamp(t.Position.X + delta, min, max); break;
+                case "y":      t.Position.Y = Clamp(t.Position.Y + delta, min, max); break;
+                case "width":  t.Scale.X   = Clamp(t.Scale.X   + delta, min, max); break;
+                case "height": t.Scale.Y   = Clamp(t.Scale.Y   + delta, min, max); break;
+            }
+        }
+
+        private static float Clamp(float value, float min, float max)
+        {
+            if (!float.IsNaN(min)) value = Math.Max(value, min);
+            if (!float.IsNaN(max)) value = Math.Min(value, max);
+            return value;
+        }
+
+        private static void UpdateFollower(World world, SelectionRule rule, Entity target, TransformComponent targetTrans)
+        {
+            Entity? follower = null;
+            foreach (var (e, _, p) in world.Query<TransformComponent, PanelComponent>())
+                if (p.Id == rule.MoveWith) { follower = e; break; }
+            if (follower == null) return;
+
+            var fTrans = world.GetComponent<TransformComponent>(follower.Value);
+            if (!_originalTransforms.TryGetValue(follower.Value, out var orig))
+                orig = (fTrans.Position, fTrans.Scale);
+            if (!_originalTransforms.TryGetValue(target, out var targetOrig))
+                targetOrig = (targetTrans.Position, targetTrans.Scale);
+
+            switch (rule.MoveEdge)
+            {
+                case "left":   AdjustEdge(ref fTrans, orig, targetTrans, targetOrig, axis: 0, movingRight: true); break;
+                case "right":  AdjustEdge(ref fTrans, orig, targetTrans, targetOrig, axis: 0, movingRight: false); break;
+                case "top":    AdjustEdge(ref fTrans, orig, targetTrans, targetOrig, axis: 1, movingRight: true); break;
+                case "bottom": AdjustEdge(ref fTrans, orig, targetTrans, targetOrig, axis: 1, movingRight: false); break;
+                case "all":    fTrans.Position = orig.pos + (targetTrans.Position - targetOrig.pos); break;
             }
 
-            targetTransform.Position = newPos;
-            targetTransform.Scale = newScale;
-            world.SetComponent(targetEntity, targetTransform);
+            if (fTrans.Scale.X < 0) fTrans.Scale.X = 0;
+            if (fTrans.Scale.Y < 0) fTrans.Scale.Y = 0;
+            world.SetComponent(follower.Value, fTrans);
+        }
 
-            foreach (var ruleF in _rules)
+        private static void AdjustEdge(ref TransformComponent fTrans,
+            (Vector3 pos, Vector3 scale) orig, TransformComponent targetTrans,
+            (Vector3 pos, Vector3 scale) targetOrig, int axis, bool movingRight)
+        {
+            float movingEdge, fixedEdge, newSize, newCenter;
+            if (axis == 0) // X axis
             {
-                if (ruleF.DragTarget != rule.DragTarget) continue;
-                if (string.IsNullOrEmpty(ruleF.MoveWith)) continue;
-
-                Entity? followerEntity = null;
-                foreach (var (e, _, p) in world.Query<TransformComponent, PanelComponent>())
-                {
-                    if (p.Id == ruleF.MoveWith)
-                    {
-                        followerEntity = e;
-                        break;
-                    }
-                }
-                if (followerEntity == null) continue;
-
-                var followerTransform = world.GetComponent<TransformComponent>(followerEntity.Value);
-                if (!_originalTransforms.TryGetValue(followerEntity.Value, out var orig))
-                    orig = (followerTransform.Position, followerTransform.Scale);
-
-                if (!_originalTransforms.TryGetValue(targetEntity, out var targetOrig))
-                    targetOrig = (targetTransform.Position, targetTransform.Scale);
-
-                switch (ruleF.MoveEdge)
-                {
-                    case "left":
-                        float newLeft = targetTransform.Position.X + targetTransform.Scale.X * 0.5f;
-                        followerTransform.Position = new Vector3(newLeft + followerTransform.Scale.X * 0.5f, followerTransform.Position.Y, 0);
-                        followerTransform.Scale = new Vector3((orig.pos.X + orig.scale.X) - newLeft, followerTransform.Scale.Y, 1);
-                        break;
-                    case "right":
-                        float newRight = targetTransform.Position.X - targetTransform.Scale.X * 0.5f;
-                        followerTransform.Scale = new Vector3(newRight - (followerTransform.Position.X - followerTransform.Scale.X * 0.5f), followerTransform.Scale.Y, 1);
-                        break;
-                    case "top":
-                        float newTop = targetTransform.Position.Y + targetTransform.Scale.Y * 0.5f;
-                        followerTransform.Position = new Vector3(followerTransform.Position.X, newTop + followerTransform.Scale.Y * 0.5f, 0);
-                        followerTransform.Scale = new Vector3(followerTransform.Scale.X, (orig.pos.Y + orig.scale.Y) - newTop, 1);
-                        break;
-                    case "bottom":
-                        float newBottom = targetTransform.Position.Y - targetTransform.Scale.Y * 0.5f;
-                        followerTransform.Scale = new Vector3(followerTransform.Scale.X, newBottom - (followerTransform.Position.Y - followerTransform.Scale.Y * 0.5f), 1);
-                        break;
-                    case "all":
-                        followerTransform.Position = new Vector3(
-                            orig.pos.X + (targetTransform.Position.X - targetOrig.pos.X),
-                            orig.pos.Y + (targetTransform.Position.Y - targetOrig.pos.Y),
-                            0);
-                        break;
-                }
-
-                if (followerTransform.Scale.X < 0) followerTransform.Scale = new Vector3(0, followerTransform.Scale.Y, 1);
-                if (followerTransform.Scale.Y < 0) followerTransform.Scale = new Vector3(followerTransform.Scale.X, 0, 1);
-                world.SetComponent(followerEntity.Value, followerTransform);
+                movingEdge = movingRight
+                    ? targetTrans.Position.X + targetTrans.Scale.X * 0.5f
+                    : targetTrans.Position.X - targetTrans.Scale.X * 0.5f;
+                fixedEdge = movingRight
+                    ? orig.pos.X + orig.scale.X * 0.5f
+                    : orig.pos.X - orig.scale.X * 0.5f;
+                newSize = movingRight ? fixedEdge - movingEdge : movingEdge - fixedEdge;
+                newCenter = (movingEdge + fixedEdge) * 0.5f;
+                fTrans.Position.X = newCenter;
+                fTrans.Scale.X = newSize;
             }
+            else // Y axis
+            {
+                movingEdge = movingRight
+                    ? targetTrans.Position.Y + targetTrans.Scale.Y * 0.5f
+                    : targetTrans.Position.Y - targetTrans.Scale.Y * 0.5f;
+                fixedEdge = movingRight
+                    ? orig.pos.Y + orig.scale.Y * 0.5f
+                    : orig.pos.Y - orig.scale.Y * 0.5f;
+                newSize = movingRight ? fixedEdge - movingEdge : movingEdge - fixedEdge;
+                newCenter = (movingEdge + fixedEdge) * 0.5f;
+                fTrans.Position.Y = newCenter;
+                fTrans.Scale.Y = newSize;
+            }
+        }
+
+        private static void RaycastSelect(World world, Vector2 mouse)
+        {
+            var hit = Raycast(world, mouse);
+            foreach (var e in world.Query<SelectedComponent>())
+                world.RemoveComponent<SelectedComponent>(e);
+            if (hit != null) world.AddComponent(hit.Value, new SelectedComponent());
         }
 
         private static Entity? Raycast(World world, Vector2 mousePos)
         {
-            Entity? cameraEntity = null;
-            CameraComponent camera = default;
+            Entity? camEntity = null;
+            CameraComponent cam = default;
             foreach (var e in world.Query<CameraComponent>())
-            {
-                cameraEntity = e;
-                camera = world.GetComponent<CameraComponent>(e);
-                break;
-            }
-            if (cameraEntity == null) return null;
+            { camEntity = e; cam = world.GetComponent<CameraComponent>(e); break; }
+            if (camEntity == null) return null;
 
             float aspect = (float)Vulkan.SwapExtent.Width / Vulkan.SwapExtent.Height;
-            float fovRad = camera.Fov * MathF.PI / 180f;
+            float fovRad = cam.Fov * MathF.PI / 180f;
             float ndcX = (mousePos.X / Vulkan.SwapExtent.Width) * 2f - 1f;
             float ndcY = (mousePos.Y / Vulkan.SwapExtent.Height) * 2f - 1f;
-            Vector3 rayDir = new Vector3(ndcX * MathF.Tan(fovRad / 2f) * aspect, -ndcY * MathF.Tan(fovRad / 2f), -1f);
-            rayDir = Vector3.Normalize(rayDir);
+            Vector3 rayDir = Vector3.Normalize(new Vector3(
+                ndcX * MathF.Tan(fovRad / 2f) * aspect,
+                -ndcY * MathF.Tan(fovRad / 2f),
+                -1f));
 
-            Matrix4x4 view = Matrix4x4.CreateLookAt(camera.Position, camera.Pivot, Vector3.UnitY);
-            Matrix4x4.Invert(view, out Matrix4x4 invView);
+            Matrix4x4.Invert(Matrix4x4.CreateLookAt(cam.Position, cam.Pivot, Vector3.UnitY), out var invView);
             rayDir = Vector3.TransformNormal(rayDir, invView);
-            Vector3 rayOrigin = camera.Position;
+            Vector3 origin = cam.Position;
 
             Entity? closest = null;
             float closestDist = float.MaxValue;
-
             foreach (var (e, trans, _) in world.Query<TransformComponent, MeshComponent>())
             {
-                Vector3 center = trans.Position;
+                Vector3 oc = origin - trans.Position;
                 float radius = Math.Max(trans.Scale.X, Math.Max(trans.Scale.Y, trans.Scale.Z)) * 0.5f;
-
-                Vector3 oc = rayOrigin - center;
                 float b = Vector3.Dot(oc, rayDir);
                 float c = Vector3.Dot(oc, oc) - radius * radius;
                 float disc = b * b - c;
                 if (disc > 0)
                 {
                     float t = -b - MathF.Sqrt(disc);
-                    if (t > 0 && t < closestDist)
-                    {
-                        closestDist = t;
-                        closest = e;
-                    }
+                    if (t > 0 && t < closestDist) { closestDist = t; closest = e; }
                 }
             }
             return closest;
+        }
+
+        private static void HandleEdit()
+        {
+            if (Input.EditConfirmed || Input.EditCancelled)
+            {
+                if (Input.EditConfirmed) Console.WriteLine($"[Selection] Edit: {Input.EditBuffer}");
+                Input.EndEdit();
+            }
         }
     }
 }
