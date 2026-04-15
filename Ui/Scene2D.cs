@@ -5,6 +5,7 @@ using System.Numerics;
 using Silk.NET.Vulkan;
 using SETUE.ECS;
 using SETUE.RenderEngine;
+using SETUE.Systems;          // Added for Panels
 using static SETUE.Vulkan;
 using VkBuffer = Silk.NET.Vulkan.Buffer;
 
@@ -92,7 +93,7 @@ namespace SETUE.Scene
             float sh = SwapExtent.Height;
             Commands.Clear();
 
-            var world = Object.ECSWorld; // Changed from ObjectLoader
+            var world = Object.ECSWorld;
 
             foreach (var rule in _rules)
             {
@@ -142,11 +143,28 @@ namespace SETUE.Scene
                         break;
 
                     case "texts":
-                        foreach (var (e, text, textTransform) in world.Query<TextComponent, TransformComponent>())
+                        foreach (var (e, text, _) in world.Query<TextComponent, TransformComponent>())
                         {
                             string fontId = string.IsNullOrEmpty(text.FontId) ? "default" : text.FontId;
                             var font = SETUE.UI.Fonts.Get(fontId);
                             if (font == null) continue;
+
+                            // Get current transform from world and update position from parent panel
+                            var textTransform = world.GetComponent<TransformComponent>(e);
+                            if (!string.IsNullOrEmpty(text.PanelId) && Panels.All.TryGetValue(text.PanelId, out var panel))
+                            {
+                                float padding = 10f;
+                                float xPos = panel.X + padding;
+                                float yPos = panel.Y + panel.Height * 0.5f;
+
+                                if (text.Align == "center")
+                                    xPos = panel.X + panel.Width * 0.5f;
+                                else if (text.Align == "right")
+                                    xPos = panel.X + panel.Width - padding;
+
+                                textTransform.Position = new Vector3(xPos, yPos, 0);
+                                world.SetComponent(e, textTransform);
+                            }
 
                             BuildTextBuffersFromECS(text, textTransform, font, sw, sh, out var vbuf, out var ibuf, out uint idxCount);
                             if (idxCount > 0)
@@ -159,7 +177,7 @@ namespace SETUE.Scene
                                     VertexBuffer = vbuf,
                                     IndexBuffer = ibuf,
                                     IndexCount = idxCount,
-                                    Order = rule.Order,
+                                    Order = rule.Order + text.Layer,
                                     IsText = true,
                                     FontId = fontId
                                 });
@@ -191,6 +209,8 @@ namespace SETUE.Scene
 
             if (text.Align == "center")
                 x -= totalW * 0.5f;
+            else if (text.Align == "right")
+                x -= totalW;
 
             float cosR = MathF.Cos(text.Rotation * MathF.PI / 180f);
             float sinR = MathF.Sin(text.Rotation * MathF.PI / 180f);
@@ -224,13 +244,14 @@ namespace SETUE.Scene
                     nx3 = (rx01 / sw) * 2f - 1f; ny3 = (ry01 / sh) * 2f - 1f;
                 }
 
+                // Vertex format: pos3 (x,y,0), normal3 (U,V,0), uv2 (U,V)  -- 8 floats total
                 verts.AddRange(new[] {
-                    nx0, ny0, 0f, glyph.U0, glyph.V0, 0f,
-                    nx1, ny1, 0f, glyph.U1, glyph.V0, 0f,
-                    nx2, ny2, 0f, glyph.U1, glyph.V1, 0f,
-                    nx0, ny0, 0f, glyph.U0, glyph.V0, 0f,
-                    nx2, ny2, 0f, glyph.U1, glyph.V1, 0f,
-                    nx3, ny3, 0f, glyph.U0, glyph.V1, 0f
+                    nx0, ny0, 0f,  glyph.U0, glyph.V0, 0f,  glyph.U0, glyph.V0,
+                    nx1, ny1, 0f,  glyph.U1, glyph.V0, 0f,  glyph.U1, glyph.V0,
+                    nx2, ny2, 0f,  glyph.U1, glyph.V1, 0f,  glyph.U1, glyph.V1,
+                    nx0, ny0, 0f,  glyph.U0, glyph.V0, 0f,  glyph.U0, glyph.V0,
+                    nx2, ny2, 0f,  glyph.U1, glyph.V1, 0f,  glyph.U1, glyph.V1,
+                    nx3, ny3, 0f,  glyph.U0, glyph.V1, 0f,  glyph.U0, glyph.V1
                 });
 
                 indices.AddRange(new[] {
@@ -274,19 +295,6 @@ namespace SETUE.Scene
         {
             float dx = px - cx, dy = py - cy;
             return (cx + dx * cosR - dy * sinR, cy + dx * sinR + dy * cosR);
-        }
-
-        private static Matrix4x4 ComputePanelTransformFromECS(TransformComponent t, float sw, float sh)
-        {
-            float left = t.Position.X - t.Scale.X * 0.5f;
-            float top = t.Position.Y - t.Scale.Y * 0.5f;
-            float x = (left / sw) * 2f - 1f;
-            float y = (top / sh) * 2f - 1f;
-            float w = (t.Scale.X / sw) * 2f;
-            float h = (t.Scale.Y / sh) * 2f;
-            float cx = x + w * 0.5f;
-            float cy = y + h * 0.5f;
-            return Matrix4x4.CreateScale(w, h, 1f) * Matrix4x4.CreateTranslation(cx, cy, 0f);
         }
     }
 }

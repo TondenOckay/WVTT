@@ -140,10 +140,17 @@ namespace SETUE
                 VK.CmdBindVertexBuffers(cmd, 0, 1, vbuf, &offset);
                 VK.CmdBindIndexBuffer(cmd, c.IndexBuffer, 0, IndexType.Uint32);
 
+                // Bind font atlas descriptor set if text
+                if (c.IsText && SETUE.UI.Fonts.Get(c.FontId) is { } font && font.DescriptorSet.Handle != 0)
+                {
+                    VK.CmdBindDescriptorSets(cmd, PipelineBindPoint.Graphics, shader.Layout,
+                        0, 1, font.DescriptorSet, 0, null);
+                }
+
                 PushConstants pc = new PushConstants
                 {
                     MVP = c.Transform,
-                    Model = System.Numerics.Matrix4x4.Identity,
+                    Model = Matrix4x4.Identity,
                     Color = c.Color
                 };
                 VK.CmdPushConstants(cmd, shader.Layout,

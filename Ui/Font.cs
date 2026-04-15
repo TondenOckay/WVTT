@@ -27,9 +27,10 @@ namespace SETUE.UI
         public float Ascent     { get; private set; }
         public float Descent    { get; private set; }
 
-        // Vulkan resources
+        // Vulkan resources – will be set by Vulkan_Helper
         public ImageView ImageView { get; set; }
         public Sampler   Sampler   { get; set; }
+        public DescriptorSet DescriptorSet { get; set; }
 
         public bool Build(string fontId, string fontPath, float fontSize, float glyphSpacing, float rowPadding)
         {

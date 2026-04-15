@@ -200,11 +200,13 @@ namespace SETUE.Controls
             var trans = world.GetComponent<TransformComponent>(entity);
             _originalTransforms[entity] = (trans.Position, trans.Scale);
 
-            if (!string.IsNullOrEmpty(rule.MoveWith))
-                foreach (var (e, _, p) in world.Query<TransformComponent, PanelComponent>())
-                    if (p.Id == rule.MoveWith)
-                        _originalTransforms[e] = (world.GetComponent<TransformComponent>(e).Position,
-                                                 world.GetComponent<TransformComponent>(e).Scale);
+            // Cache originals for all child followers of this drag target
+            foreach (var r in _rules)
+                if (!string.IsNullOrEmpty(r.MoveWith) && r.MoveWith == rule.DragTarget)
+                    foreach (var (e, _, p) in world.Query<TransformComponent, PanelComponent>())
+                        if (p.Id == r.DragTarget)
+                            _originalTransforms[e] = (world.GetComponent<TransformComponent>(e).Position,
+                                                     world.GetComponent<TransformComponent>(e).Scale);
 
             Console.WriteLine($"[Selection] Drag started on {panel.Id}");
         }
@@ -232,9 +234,9 @@ namespace SETUE.Controls
             ApplyDeltaToTransform(ref trans, rule.DragProperty, delta, rule.DragMin, rule.DragMax);
             world.SetComponent(target, trans);
 
-            // Update followers
+            // Update followers — child rows declare their parent via MoveWith
             foreach (var r in _rules)
-                if (r.DragTarget == rule.DragTarget && !string.IsNullOrEmpty(r.MoveWith))
+                if (!string.IsNullOrEmpty(r.MoveWith) && r.MoveWith == rule.DragTarget)
                     UpdateFollower(world, r, target, trans);
         }
 
@@ -258,9 +260,10 @@ namespace SETUE.Controls
 
         private static void UpdateFollower(World world, SelectionRule rule, Entity target, TransformComponent targetTrans)
         {
+            // DragTarget on a follower row identifies the child panel
             Entity? follower = null;
             foreach (var (e, _, p) in world.Query<TransformComponent, PanelComponent>())
-                if (p.Id == rule.MoveWith) { follower = e; break; }
+                if (p.Id == rule.DragTarget) { follower = e; break; }
             if (follower == null) return;
 
             var fTrans = world.GetComponent<TransformComponent>(follower.Value);
