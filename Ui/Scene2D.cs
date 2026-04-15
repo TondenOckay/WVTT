@@ -241,14 +241,16 @@ namespace SETUE.Scene
                 float nx3 = (rx3 / sw) * 2f - 1f;
                 float ny3 = (ry3 / sh) * 2f - 1f;
 
-                // Vertex format: vec2 position, vec2 texCoord (4 floats per vertex)
+                // Vertex format: 8 floats total to match engine stride
+                // [pos.x, pos.y, pos.z, norm.x, norm.y, norm.z, uv.u, uv.v]
+                // Note: text.vert uses location 1 (inNormal) for UVs: fragUV = inNormal.xy;
                 verts.AddRange(new[] {
-                    nx0, ny0, glyph.U0, glyph.V0,
-                    nx1, ny1, glyph.U1, glyph.V0,
-                    nx2, ny2, glyph.U1, glyph.V1,
-                    nx0, ny0, glyph.U0, glyph.V0,
-                    nx2, ny2, glyph.U1, glyph.V1,
-                    nx3, ny3, glyph.U0, glyph.V1
+                    nx0, ny0, 0f, glyph.U0, glyph.V0, 0f, 0f, 0f,
+                    nx1, ny1, 0f, glyph.U1, glyph.V0, 0f, 0f, 0f,
+                    nx2, ny2, 0f, glyph.U1, glyph.V1, 0f, 0f, 0f,
+                    nx0, ny0, 0f, glyph.U0, glyph.V0, 0f, 0f, 0f,
+                    nx2, ny2, 0f, glyph.U1, glyph.V1, 0f, 0f, 0f,
+                    nx3, ny3, 0f, glyph.U0, glyph.V1, 0f, 0f, 0f
                 });
 
                 indices.AddRange(new[] {
