@@ -92,12 +92,18 @@ namespace SETUE.ECS
         public string FontId;
         public float FontSize;
         public Vector4 Color;
-        public string Align;
-        public float Rotation;
+        public string Align;            // "left", "center", "right"
+        public float Rotation;          // degrees
         public int Layer;
         public string Source;
         public string Prefix;
         public string PanelId;
+
+        // NEW: Layout overrides (read from CSV)
+        public float PadLeft;           // horizontal padding from panel edge (default 10)
+        public float PadTop;            // vertical padding from panel top (default 10)
+        public float LineHeight;        // vertical spacing between stacked texts (default 20)
+        public string VAlign;           // "top", "middle", "bottom" (default "top")
     }
 
     // -------------------------------------------------------------------------
@@ -161,7 +167,6 @@ namespace SETUE.ECS
                 dict.Remove(e.Id);
         }
 
-        // Single‑component query (returns entities)
         public IEnumerable<Entity> Query<T>() where T : IComponent
         {
             var type = typeof(T);
@@ -171,7 +176,6 @@ namespace SETUE.ECS
                 yield return new Entity(id, _versions[id]);
         }
 
-        // Two‑component query (returns entities with both components)
         public IEnumerable<(Entity e, T1 c1, T2 c2)> Query<T1, T2>()
             where T1 : IComponent
             where T2 : IComponent
@@ -181,7 +185,6 @@ namespace SETUE.ECS
             if (!_components.TryGetValue(type1, out var dict1)) yield break;
             if (!_components.TryGetValue(type2, out var dict2)) yield break;
 
-            // iterate over the smaller dictionary
             var small = dict1.Count < dict2.Count ? dict1 : dict2;
             var other = dict1 == small ? dict2 : dict1;
             var typeSmall = dict1 == small ? type1 : type2;
@@ -200,4 +203,3 @@ namespace SETUE.ECS
         }
     }
 }
-

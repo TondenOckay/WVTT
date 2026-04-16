@@ -189,15 +189,46 @@ namespace SETUE.Scene
             float startX = transform.Position.X;
             float startY = transform.Position.Y;
 
+            // Compute total width of the string
             float totalWidth = 0f;
             foreach (char c in text.Content)
-                if (font.Glyphs.TryGetValue(c, out var g)) totalWidth += g.AdvanceX;
+                if (font.Glyphs.TryGetValue(c, out var g))
+                    totalWidth += g.AdvanceX;
 
-            float penX = startX;
-            if (text.Align == "center")
-                penX -= totalWidth * 0.5f;
+            // Font metrics
+            float ascent = font.Ascent;
+            float descent = 0f;
+            // Try to get Descent via reflection, or use fallback
+            var descentProp = font.GetType().GetProperty("Descent");
+            if (descentProp != null)
+                descent = (float)descentProp.GetValue(font);
+            else
+                descent = ascent * 0.25f; // reasonable estimate for Latin fonts
+
+            float visualHeight = ascent + descent;
+            float visualTop = -ascent;      // relative to baseline
+            float visualBottom = descent;
+
+            // Determine visual center offset from the anchor point (startX, startY)
+            float centerOffsetX = 0f;
+            float centerOffsetY = (visualTop + visualBottom) * 0.5f; // e.g., (-ascent + descent)/2
+
+            if (text.Align == "left")
+                centerOffsetX = totalWidth * 0.5f;
+            else if (text.Align == "center")
+                centerOffsetX = 0f;
             else if (text.Align == "right")
-                penX -= totalWidth;
+                centerOffsetX = -totalWidth * 0.5f;
+
+            // The pivot for rotation is the visual center
+            float pivotX = startX + centerOffsetX;
+            float pivotY = startY + centerOffsetY;
+
+            // Baseline starting position for glyph placement (relative to pivot)
+            float baseX = pivotX - totalWidth * 0.5f; // always start at left of string
+            float baseY = pivotY - centerOffsetY;     // baseline = pivotY - visualCenterY
+
+            float penX = baseX;
 
             float cosR = MathF.Cos(text.Rotation * MathF.PI / 180f);
             float sinR = MathF.Sin(text.Rotation * MathF.PI / 180f);
@@ -210,12 +241,14 @@ namespace SETUE.Scene
                     continue;
                 }
 
+                // Glyph quad in local (unrotated) space
                 float x0 = penX;
-                float y0 = startY - font.Ascent;
+                float y0 = baseY - ascent;
                 float x1 = x0 + glyph.Width;
                 float y1 = y0 + glyph.Height;
 
                 float rx0, ry0, rx1, ry1, rx2, ry2, rx3, ry3;
+
                 if (text.Rotation == 0)
                 {
                     rx0 = x0; ry0 = y0;
@@ -225,13 +258,14 @@ namespace SETUE.Scene
                 }
                 else
                 {
-                    (rx0, ry0) = RotatePoint(x0, y0, startX, startY, cosR, sinR);
-                    (rx1, ry1) = RotatePoint(x1, y0, startX, startY, cosR, sinR);
-                    (rx2, ry2) = RotatePoint(x1, y1, startX, startY, cosR, sinR);
-                    (rx3, ry3) = RotatePoint(x0, y1, startX, startY, cosR, sinR);
+                    // Rotate around the visual center (pivot)
+                    (rx0, ry0) = RotatePoint(x0, y0, pivotX, pivotY, cosR, sinR);
+                    (rx1, ry1) = RotatePoint(x1, y0, pivotX, pivotY, cosR, sinR);
+                    (rx2, ry2) = RotatePoint(x1, y1, pivotX, pivotY, cosR, sinR);
+                    (rx3, ry3) = RotatePoint(x0, y1, pivotX, pivotY, cosR, sinR);
                 }
 
-                // Original NDC conversion (no Y flip)
+                // NDC conversion (no Y flip)
                 float nx0 = (rx0 / sw) * 2f - 1f;
                 float ny0 = (ry0 / sh) * 2f - 1f;
                 float nx1 = (rx1 / sw) * 2f - 1f;
@@ -241,9 +275,8 @@ namespace SETUE.Scene
                 float nx3 = (rx3 / sw) * 2f - 1f;
                 float ny3 = (ry3 / sh) * 2f - 1f;
 
-                // Vertex format: 8 floats total to match engine stride
-                // [pos.x, pos.y, pos.z, norm.x, norm.y, norm.z, uv.u, uv.v]
-                // Note: text.vert uses location 1 (inNormal) for UVs: fragUV = inNormal.xy;
+                // Vertex format: [pos.x, pos.y, pos.z, norm.x, norm.y, norm.z, uv.u, uv.v]
+                // The shader uses inNormal.xy as UVs
                 verts.AddRange(new[] {
                     nx0, ny0, 0f, glyph.U0, glyph.V0, 0f, 0f, 0f,
                     nx1, ny1, 0f, glyph.U1, glyph.V0, 0f, 0f, 0f,
@@ -300,3 +333,4 @@ namespace SETUE.Scene
         }
     }
 }
+

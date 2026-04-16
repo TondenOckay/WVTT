@@ -17,16 +17,19 @@ SETUE.UI.SceneTree,Load,Boot,,10,0.00010,0,1,0
 SETUE.Controls.Input,Load,Boot,,11,0.00011,0,1,0
 SETUE.Controls.Camera,Load,Boot,,12,0.00012,0,1,0
 SETUE.Controls.Selection,Load,Boot,,13,0.00013,0,1,0
-SETUE.Scene3D,Load,Boot,,14,0.00014,0,1,0
-SETUE.Scene.Scene2D,Load,Boot,,15,0.00015,0,1,0
-SETUE.RenderDispatcher,Load,Boot,,16,0.00016,0,1,0
+SETUE.Controls.Movement,Load,Boot,,14,0.000135,0,1,0
+SETUE.Controls.Action,Load,Boot,,15,0.00014,0,1,0
+SETUE.Scene3D,Load,Boot,,16,0.000145,0,1,0
+SETUE.Scene.Scene2D,Load,Boot,,17,0.00015,0,1,0
+SETUE.RenderDispatcher,Load,Boot,,18,0.00016,0,1,0
 
 SETUE.Window,ProcessEvents,A,Input,1,0.011,0,1,0
 SETUE.Controls.Camera,Update,A,Input,2,0.011,0,1,0
 SETUE.Controls.Selection,Update,A,Input,3,0.011,0,1,0
-SETUE.Controls.Input,Flush,A,Input,4,0.011,0,1,0
-SETUE.UI.SceneTree,Update,A,UI,1,0.012,0,1,0
-SETUE.Systems.Texts,Update,A,UI,2,0.012,0,1,0
-SETUE.Scene3D,Update,A,Render,1,0.013,0,1,0
-SETUE.Scene.Scene2D,Update,A,Render,2,0.013,0,1,0
+SETUE.Controls.Action,Update,A,Input,4,0.0115,0,1,0
+SETUE.Controls.Input,Flush,A,Input,5,0.012,0,1,0
+SETUE.UI.SceneTree,Update,A,UI,1,0.0125,0,1,0
+SETUE.Systems.Texts,Update,A,UI,2,0.013,0,1,0
+SETUE.Scene3D,Update,A,Render,1,0.014,0,1,0
+SETUE.Scene.Scene2D,Update,A,Render,2,0.015,0,1,0
 SETUE.Vulkan,DoDrawFrame,A,Render,3,0.019,0,1,0
