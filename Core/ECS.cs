@@ -93,6 +93,7 @@ namespace SETUE.ECS
         public int Layer;
         public float Alpha;
         public bool Clickable;
+        public bool ClipChildren;   // NEW
     }
 
     public struct TextComponent : IComponent
@@ -112,41 +113,41 @@ namespace SETUE.ECS
         public float PadTop;
         public float LineHeight;
         public int VAlign;
-        public int StyleId;           // NEW: References Text.csv style row
+        public int StyleId;
     }
 
     // -------------------------------------------------------------------------
-    // Drag Component (NEW)
+    // Drag Component
     // -------------------------------------------------------------------------
     public struct DragComponent : IComponent
     {
-        public int ParentNameId;      // StringRegistry ID of parent panel (for followers)
-        public int MovementId;        // StringRegistry ID of movement rule (e.g., "slide_x")
-        public int MoveEdge;          // StringRegistry ID of edge constraint ("all","left","right","top","bottom")
+        public int ParentNameId;
+        public int MovementId;
+        public int MoveEdge;
         public float MinX;
         public float MaxX;
     }
 
     // -------------------------------------------------------------------------
-    // Scene Hierarchy Components (NEW)
+    // Scene Hierarchy Components
     // -------------------------------------------------------------------------
     public struct SceneRootComponent : IComponent { }
 
     public struct NameComponent : IComponent
     {
-        public int NameId;            // StringRegistry ID of the entity's name
+        public int NameId;
     }
 
     public struct ParentComponent : IComponent
     {
-        public Entity Parent;         // Parent entity (Entity.Null if none)
+        public Entity Parent;
     }
 
     public struct LightComponent : IComponent
     {
         public Vector3 Color;
         public float Intensity;
-        public int Type;              // 0 = point, 1 = directional, etc.
+        public int Type;
     }
 
     public struct TerrainComponent : IComponent { }
@@ -336,9 +337,6 @@ namespace SETUE.ECS
                 _commands.Dequeue()();
         }
 
-        // ---------------------------------------------------------------------
-        // Zero‑allocation iteration
-        // ---------------------------------------------------------------------
         public void ForEach<T>(Action<Entity> action) where T : struct, IComponent
         {
             var storage = GetStorage<T>();
@@ -429,9 +427,6 @@ namespace SETUE.ECS
             }
         }
 
-        // ---------------------------------------------------------------------
-        // Legacy IEnumerable support
-        // ---------------------------------------------------------------------
         public IEnumerable<Entity> Query<T>() where T : struct, IComponent
         {
             var list = new List<Entity>();

@@ -20,7 +20,7 @@ namespace SETUE.Systems
         public int Layer { get; set; }
         public bool Clickable { get; set; }
         public float Alpha { get; set; } = 1f;
-        public int TextId { get; set; }
+        public int TextId { get; set; }          // ID of the Text row in Text.csv
         public string TextIdString { get; set; } = "";
         public int FontId { get; set; }
         public string FontIdString { get; set; } = "default";
@@ -29,6 +29,7 @@ namespace SETUE.Systems
         public float MinX { get; set; } = float.NaN;
         public float MaxX { get; set; } = float.NaN;
         public string CallScript { get; set; } = "";
+        public bool ClipChildren { get; set; } = false;
     }
 
     public static class Panels
@@ -74,7 +75,7 @@ namespace SETUE.Systems
                 string idStr = objectStr;
                 if (string.IsNullOrEmpty(idStr)) continue;
 
-                string textStr = Get("text", parts);
+                string textIdStr = Get("text_id", parts);
                 string fontIdStr = Get("font_id", parts);
                 if (string.IsNullOrEmpty(fontIdStr)) fontIdStr = "default";
 
@@ -94,6 +95,8 @@ namespace SETUE.Systems
                     textColor = new Vector4(c.R, c.G, c.B, 1f);
                 }
 
+                bool clipChildren = Get("clip_children", parts).ToLower() == "true";
+
                 var panel = new Panel
                 {
                     Id = StringRegistry.GetOrAdd(idStr),
@@ -107,15 +110,16 @@ namespace SETUE.Systems
                     Layer = int.TryParse(Get("layer", parts), out int layer) ? layer : 0,
                     Clickable = Get("clickable", parts).ToLower() == "true",
                     Alpha = float.TryParse(Get("alpha", parts), out float alpha) ? alpha : 1f,
-                    TextId = StringRegistry.GetOrAdd(textStr),
-                    TextIdString = textStr,
+                    TextId = StringRegistry.GetOrAdd(textIdStr),
+                    TextIdString = textIdStr,
                     FontId = StringRegistry.GetOrAdd(fontIdStr),
                     FontIdString = fontIdStr,
                     TextColor = textColor,
                     MoveEdge = Get("move_edge", parts),
                     MinX = float.TryParse(Get("min_x", parts), out float minX) ? minX : float.NaN,
                     MaxX = float.TryParse(Get("max_x", parts), out float maxX) ? maxX : float.NaN,
-                    CallScript = Get("call_script", parts)
+                    CallScript = Get("call_script", parts),
+                    ClipChildren = clipChildren
                 };
 
                 _panels.Add(panel);
@@ -137,7 +141,8 @@ namespace SETUE.Systems
                     Layer = panel.Layer,
                     Alpha = panel.Alpha,
                     Clickable = panel.Clickable,
-                    TextId = panel.TextId
+                    TextId = panel.TextId,
+                    ClipChildren = panel.ClipChildren
                 });
 
                 world.AddComponent(e, new MaterialComponent
@@ -146,20 +151,7 @@ namespace SETUE.Systems
                     Color = panel.Color
                 });
 
-                if (panel.TextId != 0)
-                {
-                    world.AddComponent(e, new TextComponent
-                    {
-                        ContentId = panel.TextId,
-                        FontId = panel.FontId,
-                        FontSize = 16f,
-                        Color = panel.TextColor,
-                        Align = StringRegistry.GetOrAdd("center"),
-                        Layer = panel.Layer + 1,
-                        StyleId = 0,
-                        PanelId = panel.Id   // FIX: link text to its parent panel for visibility control
-                    });
-                }
+                // Text is no longer attached directly. It will be created by Text.Load().
 
                 var dragComp = new DragComponent();
 
@@ -194,9 +186,7 @@ namespace SETUE.Systems
 
         public static Panel? GetPanel(int id) => _panelDict.TryGetValue(id, out var p) ? p : null;
 
-        // ---------------------------------------------------------------------
         // Action Methods (called via call_script)
-        // ---------------------------------------------------------------------
         public static void ToggleVisibility(int panelId, Vector2 mousePos)
         {
             var world = Object.ECSWorld;
@@ -209,8 +199,6 @@ namespace SETUE.Systems
                     world.SetComponent(e, p);
                     bool newState = p.Visible;
                     Console.WriteLine($"[Panels] Toggled '{StringRegistry.GetString(panelId)}' to {newState}");
-
-                    // Recursively set all children to the same visibility
                     SetChildrenVisibility(world, panelId, newState);
                 }
             });

@@ -23,6 +23,9 @@ namespace SETUE.Systems
         private static int _sourceScaleId;
         private static int _defaultFontId;
 
+        // Marker for texts managed by SceneTree (should be skipped)
+        private static int _sceneTreeSourceId;
+
         public static void Load()
         {
             // Pre-register common strings
@@ -36,6 +39,8 @@ namespace SETUE.Systems
             _sourceRotationId = StringRegistry.GetOrAdd("rotation");
             _sourceScaleId = StringRegistry.GetOrAdd("scale");
             _defaultFontId = StringRegistry.GetOrAdd("default");
+
+            _sceneTreeSourceId = StringRegistry.GetOrAdd("scene_tree");
 
             string path = "Ui/Text.csv";
             if (!File.Exists(path))
@@ -145,6 +150,11 @@ namespace SETUE.Systems
             foreach (var e in world.Query<TextComponent>())
             {
                 var text = world.GetComponent<TextComponent>(e);
+
+                // Skip texts managed by SceneTree (they handle their own positioning)
+                if (text.Source == _sceneTreeSourceId)
+                    continue;
+
                 if (text.PanelId != 0)
                 {
                     if (!panelTexts.ContainsKey(text.PanelId))

@@ -62,16 +62,6 @@ namespace SETUE
             var cmd = CurrentCmd;
             var world = Object.ECSWorld;
 
-            Console.WriteLine("[Draw] Pipeline handles from Shaders.All:");
-            foreach (var kv in Shaders.All)
-            {
-                Console.WriteLine($"  {kv.Key}: handle={kv.Value.Handle.Handle}");
-            }
-
-            Console.WriteLine("[Draw] Using GetHandle for " + _pipelineId);
-            var handleViaGet = Shaders.GetHandle(_pipelineId);
-            Console.WriteLine($"  GetHandle returned handle={handleViaGet.Handle}");
-
             if (!Shaders.All.TryGetValue(_pipelineId, out var shader))
             {
                 Console.WriteLine($"[Draw] Pipeline '{_pipelineId}' not found in Shaders.All");
@@ -82,7 +72,7 @@ namespace SETUE
             var layout = shader.Layout;
             if (pipeline.Handle == 0)
             {
-                Console.WriteLine($"[Draw] Pipeline '{_pipelineId}' has zero handle (from Shaders.All)");
+                Console.WriteLine($"[Draw] Pipeline '{_pipelineId}' has zero handle");
                 return;
             }
 
@@ -132,6 +122,20 @@ namespace SETUE
                 if (shader.Handle.Handle == 0) continue;
 
                 VK.CmdBindPipeline(cmd, PipelineBindPoint.Graphics, shader.Handle);
+
+                // --- APPLY SCISSOR (FIXED) ---
+                if (c.UseScissor)
+                {
+                    // Copy to a local variable so we can safely take its address.
+                    Rect2D scissor = c.Scissor;
+                    VK.CmdSetScissor(cmd, 0, 1, &scissor);
+                }
+                else
+                {
+                    Rect2D full = new Rect2D(new Offset2D(0, 0), Vulkan.SwapExtent);
+                    VK.CmdSetScissor(cmd, 0, 1, &full);
+                }
+                // --- END SCISSOR ---
 
                 var vbuf = c.VertexBuffer;
                 ulong offset = 0;

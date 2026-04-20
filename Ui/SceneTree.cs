@@ -5,7 +5,6 @@ using System.Linq;
 using System.Numerics;
 using SETUE.Core;
 using SETUE.ECS;
-using SETUE.Controls;
 using SETUE.Systems;
 
 namespace SETUE.UI
@@ -15,15 +14,15 @@ namespace SETUE.UI
         public class SceneTreeRow
         {
             public string Target { get; set; } = "";
-            public string RowPanelId { get; set; } = "";
-            public string RowTextId { get; set; } = "";
+            public string TemplatePanelId { get; set; } = "";
             public string RowColorId { get; set; } = "";
             public string RowSelectedColorId { get; set; } = "";
             public float IndentPerLevel { get; set; } = 20f;
-            public int RowPanelIdResolved { get; set; }
-            public int RowTextIdResolved { get; set; }
+            public string ContextMenuId { get; set; } = "";
+            public int TemplatePanelIdResolved { get; set; }
             public int RowColorIdResolved { get; set; }
             public int RowSelectedColorIdResolved { get; set; }
+            public int ContextMenuIdResolved { get; set; }
         }
 
         private static Dictionary<string, SceneTreeRow> _styleLookup = new();
@@ -44,19 +43,8 @@ namespace SETUE.UI
 
         private static readonly Dictionary<Entity, RowData> _rows = new();
         private static int _containerPanelId;
-        private static float _rowHeight = 24f;
         private static float _paddingX = 8f;
         private static float _paddingY = 4f;
-
-        private class TextStyle
-        {
-            public int FontId;
-            public float FontSize;
-            public Vector4 Color;
-            public int Align;
-            public int VAlign;
-        }
-        private static Dictionary<int, TextStyle> _textStyles = new();
 
         // ---------------------------------------------------------------------
         // Initialization
@@ -65,24 +53,7 @@ namespace SETUE.UI
         {
             Console.WriteLine("[SceneTree] ========== Load() ==========");
             _containerPanelId = StringRegistry.GetOrAdd("left_panel");
-            Console.WriteLine($"[SceneTree] Container panel ID: {_containerPanelId} ('left_panel')");
-
-            LoadTextStyles();
             LoadStyles("Ui/SceneTree.csv");
-        }
-
-        private static void LoadTextStyles()
-        {
-            int textStyleId = StringRegistry.GetOrAdd("scene_tree_text");
-            _textStyles[textStyleId] = new TextStyle
-            {
-                FontId = StringRegistry.GetOrAdd("default"),
-                FontSize = 14f,
-                Color = new Vector4(1, 1, 1, 1),
-                Align = StringRegistry.GetOrAdd("left"),
-                VAlign = StringRegistry.GetOrAdd("middle")
-            };
-            Console.WriteLine("[SceneTree] Loaded text style 'scene_tree_text'");
         }
 
         private static void LoadStyles(string csvPath)
@@ -117,20 +88,20 @@ namespace SETUE.UI
                 var row = new SceneTreeRow
                 {
                     Target = target,
-                    RowPanelId = Get("row_panel_id", parts),
-                    RowTextId = Get("row_text_id", parts),
+                    TemplatePanelId = Get("row_panel_id", parts),
                     RowColorId = Get("row_color_id", parts),
                     RowSelectedColorId = Get("row_selected_color_id", parts),
-                    IndentPerLevel = float.TryParse(Get("indent", parts), out var indent) ? indent : 20f
+                    IndentPerLevel = float.TryParse(Get("indent", parts), out var indent) ? indent : 20f,
+                    ContextMenuId = Get("context_menu_id", parts)
                 };
 
-                row.RowPanelIdResolved = string.IsNullOrEmpty(row.RowPanelId) ? 0 : StringRegistry.GetOrAdd(row.RowPanelId);
-                row.RowTextIdResolved = string.IsNullOrEmpty(row.RowTextId) ? 0 : StringRegistry.GetOrAdd(row.RowTextId);
+                row.TemplatePanelIdResolved = string.IsNullOrEmpty(row.TemplatePanelId) ? 0 : StringRegistry.GetOrAdd(row.TemplatePanelId);
                 row.RowColorIdResolved = string.IsNullOrEmpty(row.RowColorId) ? 0 : StringRegistry.GetOrAdd(row.RowColorId);
                 row.RowSelectedColorIdResolved = string.IsNullOrEmpty(row.RowSelectedColorId) ? 0 : StringRegistry.GetOrAdd(row.RowSelectedColorId);
+                row.ContextMenuIdResolved = string.IsNullOrEmpty(row.ContextMenuId) ? 0 : StringRegistry.GetOrAdd(row.ContextMenuId);
 
                 _styleLookup[target] = row;
-                Console.WriteLine($"[SceneTree] Loaded style for '{target}': panel={row.RowPanelId}");
+                Console.WriteLine($"[SceneTree] Loaded style for '{target}': template={row.TemplatePanelId}");
             }
 
             Console.WriteLine($"[SceneTree] Loaded {_styleLookup.Count} row styles.");
@@ -160,8 +131,6 @@ namespace SETUE.UI
             world.ExecuteCommands();
 
             var hierarchy = BuildHierarchy(world);
-            Console.WriteLine($"[SceneTree] Hierarchy contains {hierarchy.Count} entities.");
-
             SyncRows(world, hierarchy);
             UpdateRows(world, hierarchy);
         }
@@ -193,12 +162,8 @@ namespace SETUE.UI
                     _containerEntity = e;
                     _containerTransform = world.GetComponent<TransformComponent>(e);
                     _containerPanel = panel;
-                    Console.WriteLine($"[SceneTree] Found container entity {e.Index} for 'left_panel'");
                 }
             });
-
-            if (_containerEntity == null)
-                Console.WriteLine("[SceneTree] ERROR: No entity with PanelComponent.Id == 'left_panel' found in ECS.");
 
             return _containerEntity.HasValue;
         }
@@ -265,13 +230,13 @@ namespace SETUE.UI
                 _rows.Remove(e);
             }
 
+            // Skip the Scene entity itself (it has a static panel already)
             foreach (var (entity, depth) in hierarchy)
             {
+                if (entity == _sceneRoot) continue;
+
                 if (!_rows.ContainsKey(entity))
-                {
-                    Console.WriteLine($"[SceneTree] Creating row for entity {entity.Index} at depth {depth}");
                     CreateRow(world, entity, depth);
-                }
             }
         }
 
@@ -279,95 +244,57 @@ namespace SETUE.UI
         {
             string typeName = GetEntityTypeName(world, targetEntity);
             var style = GetStyleForType(typeName) ?? GetStyleForType("Object");
-            if (style == null)
+            if (style == null || style.TemplatePanelIdResolved == 0)
             {
-                Console.WriteLine("[SceneTree] ERROR: No fallback style, cannot create row.");
+                Console.WriteLine($"[SceneTree] ERROR: No template panel defined for '{typeName}'");
                 return;
             }
 
-            float rowHeight = _rowHeight;
-            Vector4 rowColor = new Vector4(0.18f, 0.18f, 0.24f, 1f);
-
-            if (style.RowPanelIdResolved != 0)
+            // Find the template panel entity (created by Panels.Load)
+            Entity? templatePanelEntity = null;
+            world.ForEach<PanelComponent>((Entity e) =>
             {
-                var template = Panels.GetPanel(style.RowPanelIdResolved);
-                if (template != null)
-                {
-                    rowHeight = template.Height;
-                    rowColor = template.Color;
-                }
+                var p = world.GetComponent<PanelComponent>(e);
+                if (p.Id == style.TemplatePanelIdResolved)
+                    templatePanelEntity = e;
+            });
+
+            if (!templatePanelEntity.HasValue)
+            {
+                Console.WriteLine($"[SceneTree] ERROR: Template panel '{StringRegistry.GetString(style.TemplatePanelIdResolved)}' not found.");
+                return;
             }
 
-            if (style.RowColorIdResolved != 0)
-                rowColor = GetColorFromId(style.RowColorIdResolved);
-
-            float containerWidth = _containerTransform.Scale.X;
-            float rowWidth = containerWidth - _paddingX * 2f;
-
-            // --- Create row panel ---
-            Entity panelEntity = world.CreateEntity();
-            world.AddComponent(panelEntity, new TransformComponent
+            // Find the associated text entity (from Text.csv) that belongs to this template
+            Entity? templateTextEntity = null;
+            world.ForEach<TextComponent>((Entity e) =>
             {
-                Position = Vector3.Zero,
-                Scale = new Vector3(rowWidth, rowHeight, 1),
-                Rotation = Quaternion.Identity
-            });
-            world.AddComponent(panelEntity, new PanelComponent
-            {
-                Id = StringRegistry.GetOrAdd($"_st_row_{targetEntity.Index}"),
-                Visible = _containerPanel.Visible,
-                Layer = _containerPanel.Layer + 1,
-                Alpha = 1f,
-                Clickable = true,
-                TextId = 0
-            });
-            world.AddComponent(panelEntity, new MaterialComponent
-            {
-                PipelineId = StringRegistry.GetOrAdd("rect_pipeline"),
-                Color = rowColor
+                var t = world.GetComponent<TextComponent>(e);
+                if (t.PanelId == style.TemplatePanelIdResolved)
+                    templateTextEntity = e;
             });
 
-            // --- Create text entity with truncated content ---
-            Entity textEntity = world.CreateEntity();
-            world.AddComponent(textEntity, new TransformComponent
+            // Clone the panel
+            Entity rowEntity = ClonePanel(world, templatePanelEntity.Value, targetEntity, depth, style);
+            if (rowEntity.Index == 0) return;
+
+            // Clone or create the text entity
+            Entity textEntity = Entity.Null;
+            if (templateTextEntity.HasValue)
             {
-                Position = Vector3.Zero,
-                Scale = Vector3.One,
-                Rotation = Quaternion.Identity
-            });
+                textEntity = CloneTextForRow(world, templateTextEntity.Value, rowEntity, targetEntity, depth, style);
+            }
 
-            int textStyleId = style.RowTextIdResolved != 0 ? style.RowTextIdResolved : StringRegistry.GetOrAdd("scene_tree_text");
-            if (!_textStyles.TryGetValue(textStyleId, out var textStyle))
-                textStyle = _textStyles.Values.FirstOrDefault();
-
-            // Get the full display name and truncate to fit available width
-            string fullName = GetDisplayName(targetEntity);
-            float indent = _paddingX + depth * style.IndentPerLevel;
-            float availableTextWidth = rowWidth - indent - _paddingX; // Reserve right padding
-
-            string displayText = TruncateTextToWidth(fullName, availableTextWidth, textStyle);
-            int contentId = StringRegistry.GetOrAdd(displayText);
-
-            Console.WriteLine($"[SceneTree]   Text content: '{displayText}' (original: '{fullName}')");
-
-            world.AddComponent(textEntity, new TextComponent
-            {
-                Id = StringRegistry.GetOrAdd($"_st_txt_{targetEntity.Index}"),
-                ContentId = contentId,
-                FontId = textStyle?.FontId ?? StringRegistry.GetOrAdd("default"),
-                FontSize = textStyle?.FontSize ?? 14f,
-                Color = textStyle?.Color ?? new Vector4(1, 1, 1, 1),
-                Align = textStyle?.Align ?? StringRegistry.GetOrAdd("left"),
-                VAlign = textStyle?.VAlign ?? StringRegistry.GetOrAdd("middle"),
-                Layer = _containerPanel.Layer + 2,
-                PanelId = 0
-            });
-
-            world.ExecuteCommands();
+            // Link as child of left_panel for clipping
+            var dragComp = world.HasComponent<DragComponent>(rowEntity) 
+                ? world.GetComponent<DragComponent>(rowEntity) 
+                : new DragComponent();
+            dragComp.ParentNameId = _containerPanelId;
+            world.SetComponent(rowEntity, dragComp);
 
             _rows[targetEntity] = new RowData
             {
-                PanelEntity = panelEntity,
+                PanelEntity = rowEntity,
                 TextEntity = textEntity,
                 TargetEntity = targetEntity,
                 Style = style,
@@ -375,63 +302,102 @@ namespace SETUE.UI
                 Depth = depth
             };
 
-            Console.WriteLine($"[SceneTree]   CREATED ROW: {typeName} width={rowWidth} height={rowHeight}");
+            Console.WriteLine($"[SceneTree] Created row for {typeName} entity {targetEntity.Index}");
         }
 
-        // Helper to get the raw display name string
-        private static string GetDisplayName(Entity entity)
+        private static Entity ClonePanel(World world, Entity template, Entity targetEntity, int depth, SceneTreeRow style)
         {
-            var world = Object.ECSWorld;
-            if (world.HasComponent<NameComponent>(entity))
+            var templateTrans = world.GetComponent<TransformComponent>(template);
+            var templatePanel = world.GetComponent<PanelComponent>(template);
+            var templateMat = world.GetComponent<MaterialComponent>(template);
+
+            float containerWidth = _containerTransform.Scale.X;
+            float rowWidth = containerWidth - _paddingX * 2f;
+            float rowHeight = templateTrans.Scale.Y;
+
+            int rowPanelId = StringRegistry.GetOrAdd($"_st_{targetEntity.Index}");
+
+            Entity newEntity = world.CreateEntity();
+
+            world.AddComponent(newEntity, new TransformComponent
             {
-                int id = world.GetComponent<NameComponent>(entity).NameId;
-                string name = StringRegistry.GetString(id);
-                if (!string.IsNullOrEmpty(name))
-                    return name;
-            }
-            return $"Entity_{entity.Index}";
+                Position = Vector3.Zero,
+                Scale = new Vector3(rowWidth, rowHeight, 1),
+                Rotation = Quaternion.Identity
+            });
+
+            world.AddComponent(newEntity, new PanelComponent
+            {
+                Id = rowPanelId,
+                Visible = _containerPanel.Visible,
+                Layer = _containerPanel.Layer + 1,
+                Alpha = templatePanel.Alpha,
+                Clickable = templatePanel.Clickable,
+                TextId = 0,  // Text is separate entity, not inline
+                ClipChildren = false
+            });
+
+            Vector4 color = style.RowColorIdResolved != 0 
+                ? GetColorFromId(style.RowColorIdResolved) 
+                : templateMat.Color;
+            world.AddComponent(newEntity, new MaterialComponent
+            {
+                PipelineId = templateMat.PipelineId,
+                Color = color
+            });
+
+            return newEntity;
         }
 
-        // Truncate string to fit within maxWidth pixels using font metrics
-        private static string TruncateTextToWidth(string text, float maxWidth, TextStyle style)
+        private static Entity CloneTextForRow(World world, Entity templateText, Entity rowPanelEntity, Entity targetEntity, int depth, SceneTreeRow style)
         {
-            if (string.IsNullOrEmpty(text) || maxWidth <= 0)
-                return text;
+            var templateTextComp = world.GetComponent<TextComponent>(templateText);
+            var templateTrans = world.GetComponent<TransformComponent>(templateText);
 
-            string fontIdStr = StringRegistry.GetString(style.FontId);
-            var font = SETUE.UI.Fonts.Get(fontIdStr);
-            if (font == null)
-                return text;
+            // Get the row panel's ID
+            var rowPanel = world.GetComponent<PanelComponent>(rowPanelEntity);
+            int rowPanelId = rowPanel.Id;
 
-            float currentWidth = 0f;
-            for (int i = 0; i < text.Length; i++)
+            // Build the display name
+            string displayName = GetDisplayName(targetEntity);
+            int contentId = StringRegistry.GetOrAdd(displayName);
+
+            Entity newTextEntity = world.CreateEntity();
+
+            world.AddComponent(newTextEntity, new TransformComponent
             {
-                char c = text[i];
-                float advance = font.Glyphs.TryGetValue(c, out var g) ? g.AdvanceX : 8f;
-                if (currentWidth + advance > maxWidth)
-                {
-                    // Add ellipsis
-                    string ellipsis = "...";
-                    float ellipsisWidth = 0f;
-                    foreach (char ec in ellipsis)
-                        ellipsisWidth += font.Glyphs.TryGetValue(ec, out var eg) ? eg.AdvanceX : 8f;
+                Position = Vector3.Zero,
+                Scale = templateTrans.Scale,
+                Rotation = Quaternion.Identity
+            });
 
-                    // Ensure we have room for ellipsis
-                    if (maxWidth < ellipsisWidth)
-                        return ""; // Not enough space even for ellipsis
+            world.AddComponent(newTextEntity, new TextComponent
+            {
+                Id = StringRegistry.GetOrAdd($"_st_txt_{targetEntity.Index}"),
+                ContentId = contentId,
+                FontId = templateTextComp.FontId,
+                FontSize = templateTextComp.FontSize,
+                Color = templateTextComp.Color,
+                Align = templateTextComp.Align,
+                VAlign = templateTextComp.VAlign,
+                Layer = _containerPanel.Layer + 2,
+                PanelId = rowPanelId,
+                PadLeft = templateTextComp.PadLeft + depth * style.IndentPerLevel,
+                PadTop = templateTextComp.PadTop,
+                LineHeight = templateTextComp.LineHeight,
+                Source = templateTextComp.Source,
+                Prefix = templateTextComp.Prefix,
+                Rotation = templateTextComp.Rotation
+            });
 
-                    // Build truncated string with ellipsis
-                    return text.Substring(0, i) + ellipsis;
-                }
-                currentWidth += advance;
-            }
-            return text;
+            return newTextEntity;
         }
 
         private static void DestroyRow(World world, RowData row)
         {
             world.DestroyEntity(row.PanelEntity);
-            world.DestroyEntity(row.TextEntity);
+            if (row.TextEntity.Index != 0)
+                world.DestroyEntity(row.TextEntity);
         }
 
         private static void UpdateRows(World world, Dictionary<Entity, int> hierarchy)
@@ -441,25 +407,25 @@ namespace SETUE.UI
             float containerWidth  = _containerTransform.Scale.X;
             float containerHeight = _containerTransform.Scale.Y;
 
-            float y = containerTop + _paddingY;
+            // Start Y after the fixed Scene panel (height = 24, top = 80, so bottom = 104)
+            float y = 104 + _paddingY;
 
             var orderedEntities = hierarchy.OrderBy(kv => kv.Value).ThenBy(kv => kv.Key.Index).Select(kv => kv.Key).ToList();
 
             foreach (var entity in orderedEntities)
             {
+                if (entity == _sceneRoot) continue;
+
                 if (!_rows.TryGetValue(entity, out var row))
                     continue;
 
                 bool isSelected = world.HasComponent<SelectedComponent>(entity);
                 var panelTrans = world.GetComponent<TransformComponent>(row.PanelEntity);
                 var material = world.GetComponent<MaterialComponent>(row.PanelEntity);
-                var textComp = world.GetComponent<TextComponent>(row.TextEntity);
-                var textTrans = world.GetComponent<TransformComponent>(row.TextEntity);
 
                 float rowHeight = panelTrans.Scale.Y;
                 float rowWidth = containerWidth - _paddingX * 2f;
 
-                // Position the row panel
                 panelTrans.Position = new Vector3(
                     containerLeft + _paddingX + rowWidth * 0.5f,
                     y + rowHeight * 0.5f,
@@ -468,7 +434,6 @@ namespace SETUE.UI
                 panelTrans.Scale = new Vector3(rowWidth, rowHeight, 1f);
                 world.SetComponent(row.PanelEntity, panelTrans);
 
-                // Update selection color
                 if (isSelected != row.LastSelectedState)
                 {
                     Vector4 normalColor = row.Style.RowColorIdResolved != 0
@@ -481,36 +446,6 @@ namespace SETUE.UI
                     world.SetComponent(row.PanelEntity, material);
                     row.LastSelectedState = isSelected;
                 }
-
-                // --- Proper vertical centering using font metrics ---
-                float textY = y + rowHeight * 0.5f; // fallback
-                string fontIdStr = StringRegistry.GetString(textComp.FontId);
-                var font = SETUE.UI.Fonts.Get(fontIdStr);
-                if (font != null)
-                {
-                    float ascent = font.Ascent;
-                    float descent = 0f;
-                    var descentProp = font.GetType().GetProperty("Descent");
-                    if (descentProp != null)
-                        descent = (float)descentProp.GetValue(font);
-                    else
-                        descent = ascent * 0.25f;
-
-                    // The text's baseline is at y=0 in local coordinates.
-                    // Visual top = -ascent, visual bottom = descent.
-                    // To center the text vertically within the row, we shift the baseline so that
-                    // the midpoint of the visual extent aligns with the row's center.
-                    float visualMid = (-ascent + descent) * 0.5f;
-                    textY = y + rowHeight * 0.5f - visualMid;
-                }
-
-                float indent = _paddingX + row.Depth * row.Style.IndentPerLevel;
-                textTrans.Position = new Vector3(
-                    containerLeft + indent,
-                    textY,
-                    0f
-                );
-                world.SetComponent(row.TextEntity, textTrans);
 
                 y += rowHeight;
 
@@ -529,8 +464,21 @@ namespace SETUE.UI
             if (world.HasComponent<LightComponent>(e)) return "Light";
             if (world.HasComponent<TerrainComponent>(e)) return "Terrain";
             if (world.HasComponent<MeshComponent>(e)) return "Object";
-            if (world.HasComponent<ParentComponent>(e)) return "Parent";
+            if (world.HasComponent<ParentComponent>(e) && !world.HasComponent<MeshComponent>(e)) return "Parent";
             return "Object";
+        }
+
+        private static string GetDisplayName(Entity entity)
+        {
+            var world = Object.ECSWorld;
+            if (world.HasComponent<NameComponent>(entity))
+            {
+                int id = world.GetComponent<NameComponent>(entity).NameId;
+                string name = StringRegistry.GetString(id);
+                if (!string.IsNullOrEmpty(name))
+                    return name;
+            }
+            return $"Entity_{entity.Index}";
         }
 
         private static Vector4 GetColorFromId(int colorId)
@@ -540,16 +488,8 @@ namespace SETUE.UI
             return new Vector4(c.R, c.G, c.B, c.Alpha);
         }
 
-        private static bool HitTestRow(Entity panelEntity, Vector2 mouse)
-        {
-            var world = Object.ECSWorld;
-            if (!world.HasComponent<TransformComponent>(panelEntity)) return false;
-            var trans = world.GetComponent<TransformComponent>(panelEntity);
-            float left   = trans.Position.X - trans.Scale.X * 0.5f;
-            float right  = trans.Position.X + trans.Scale.X * 0.5f;
-            float top    = trans.Position.Y - trans.Scale.Y * 0.5f;
-            float bottom = trans.Position.Y + trans.Scale.Y * 0.5f;
-            return mouse.X >= left && mouse.X <= right && mouse.Y >= top && mouse.Y <= bottom;
-        }
+        // Stubs for context menu actions
+        public static void RenameSelected(int panelId, Vector2 mousePos) => Console.WriteLine($"[SceneTree] Rename {panelId}");
+        public static void DeleteSelected(int panelId, Vector2 mousePos) => Console.WriteLine($"[SceneTree] Delete {panelId}");
     }
 }
