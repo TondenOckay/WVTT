@@ -1,0 +1,17 @@
+Type,ClassName,MethodName,MethodKind,Enabled,Description
+class,SETUE.Window,,,1,Window system must be loaded
+class,SETUE.Vulkan,,,1,Vulkan renderer must be present (rename later)
+class,SETUE.RenderEngine.Shaders,,,1,Shader system
+class,SETUE.Systems.Panels,,,1,Panel UI system
+class,SETUE.Controls.Input,,,1,Input handling
+class,SETUE.Controls.Selection,,,1,Selection handling
+class,SETUE.Scene.Scene2D,,,1,2D scene
+class,SETUE.UI.SceneTree,,,1,Scene tree UI
+class,SETUE.Controls.Movement,,,1,Movement controls
+class,SETUE.Scene3D,,,1,3D scene
+method,SETUE.Vulkan,CreateSurface,Load,1,Surface must be created
+method,SETUE.Window,ProcessEvents,Update,1,Window events must run
+method,SETUE.Vulkan,DoDrawFrame,Update,1,Drawing must run
+method,SETUE.Controls.Input,Flush,Update,1,Input must be flushed
+method,SETUE.Scene.Scene2D,Update,Update,1,2D scene updates
+method,SETUE.Controls.Movement,UpdateDrags,Update,1,Drag updates must run

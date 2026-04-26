@@ -1,0 +1,8 @@
+Type,ID,Enabled,Title,Width,Height,Resizable,ClearR,ClearG,ClearB,ClearDepth,AssetPath,FontCSV,ColorCSV,TextCSV,PanelCSV
+window,main,true,Forge Engine,1920,1080,true,,,,,,,,,,
+render,main_render,true,,,,,0.1,0.2,0.3,1.0,,,,,
+asset,player,true,,,,,,,,,/assets/player.png,,,,
+font,default_font,true,,,,,,,,,,,Font.csv,,
+color,colors,true,,,,,,,,,,,,Color.csv,
+text,texts,true,,,,,,,,,,,,,,Text.csv
+panel,uipanels,true,,,,,,,,,,,,,,Panel.csv

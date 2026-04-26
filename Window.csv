@@ -9,3 +9,4 @@ VSync,true
 UseVulkan,true
 VulkanConfigPath,Render Engine/VulkanDevice.csv
 WindowFlags,Vulkan
+BackgroundColor,0x1099bb

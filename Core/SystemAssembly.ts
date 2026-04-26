@@ -1,0 +1,15 @@
+// Core/SystemAssembly.ts
+import './Debug.js';
+import '../Window.js';
+import '../RenderPhases.js';
+import '../Input.js';
+import '../Ui/Color.js';
+import '../Ui/Font.js';
+import '../Ui/Panel.js';
+import '../Ui/Text.js';
+import './Object.js';
+import '../Ui/Scene2D.js';
+import '../Controls/Input.js';
+import '../Controls/Selection.js';
+import '../Controls/Movement.js';
+import '../Controls/Camera.js';

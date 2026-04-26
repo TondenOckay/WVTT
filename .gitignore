@@ -1,25 +1,5 @@
-# Build outputs
-bin/
+node_modules/
+dist/
+.vite/
 obj/
-*.dll
-*.exe
-*.pdb
-
-# User-specific files
-*.suo
-*.user
-*.userosscache
-*.sln.docstates
-
-# Temporary files
-*.tmp
-*.log
-*.swp
-*~
-
-# Vulkan shader compiled files
-*.spv
-
-# Atlas files
-/tmp/
-crash.dmp
+Cache/

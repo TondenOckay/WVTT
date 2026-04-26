@@ -13,3 +13,4 @@ popup_item,0.18,0.18,0.24,1.0
 text_white,1.0,1.0,1.0,1.0
 row_default,0.18,0.18,0.24,1.0
 row_selected,0.3,0.5,0.8,1.0
+background,0.15,0.15,0.20,1.0

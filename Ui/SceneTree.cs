@@ -3,22 +3,47 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Numerics;
+using SETUE.Controls;
 using SETUE.Core;
 using SETUE.ECS;
+using static SETUE.Vulkan;
 
 namespace SETUE.UI
 {
     public static class SceneTree
     {
-        private static Dictionary<string, string> _rowTemplateMap = new();
-        private static Dictionary<string, int> _menuTemplateIdMap = new();
+        private class RowConfig
+        {
+            public string ParentType = string.Empty;
+            public string ChildType = string.Empty;
+            public string TypeName = string.Empty;
+            public string RowTemplate = string.Empty;
+            public string MenuTemplate = string.Empty;
+            public string[] CreateComponents = Array.Empty<string>();
+            public string Value = string.Empty;
+        }
+
+        private static readonly List<RowConfig> _allRows = new();
+
+        private static float _paddingX;
+        private static float _paddingY;
+        private static float _menuOffsetX;
+        private static float _menuOffsetY;
+        private static string _menuAnchor = "mouse";
+
+        private static readonly Dictionary<string, RowConfig> _typeToConfig = new();
+        private static readonly Dictionary<string, List<RowConfig>> _parentToChildren = new();
+        private static readonly Dictionary<int, RowConfig> _menuItemIdToConfig = new();
+
+        public struct EntityTypeComponent : IComponent
+        {
+            public int TypeNameId;
+        }
 
         private static Entity? _containerEntity;
         private static TransformComponent _containerTransform;
         private static Entity? _sceneRoot;
         private static int _containerPanelId;
-        private static float _paddingX;
-        private static float _paddingY;
 
         private class RowData
         {
@@ -28,94 +53,105 @@ namespace SETUE.UI
         }
         private static readonly Dictionary<Entity, RowData> _rows = new();
 
-        // Active context menu (reuses template + children)
         private static Entity? _activeMenuContainer;
         private static List<Entity> _activeMenuItems = new();
         private static Dictionary<Entity, Vector3> _originalPositions = new();
-        private static Entity? _pendingRenameEntity;
 
-        // ---------------------------------------------------------------------
-        // Initialization
-        // ---------------------------------------------------------------------
+        private static Entity? _selectedEntity;
+        private static Entity? _pendingRenameEntity;
+        private static Entity? _currentContextEntity;
+
         public static void Load()
         {
             Console.WriteLine("[SceneTree] ========== Load() ==========");
             _containerPanelId = StringRegistry.GetOrAdd("left_panel");
-            LoadSettings("Ui/SceneTree.csv");
-            LoadRowTemplates("Ui/SceneTree.csv");
-            BuildMenuTemplateMap();
+            LoadConfig("Ui/SceneTree.csv");
+            BuildLookups();
             HideAllTemplates();
         }
 
-        private static void LoadSettings(string path)
+        private static void LoadConfig(string path)
         {
             if (!File.Exists(path))
-            {
-                Console.WriteLine($"[SceneTree] ERROR: Missing {path}");
-                return;
-            }
+                throw new FileNotFoundException($"[SceneTree] ERROR: Required file '{path}' not found.");
+
             var lines = File.ReadAllLines(path);
-            if (lines.Length < 2) return;
+            if (lines.Length < 2)
+                throw new InvalidDataException($"[SceneTree] ERROR: '{path}' has no data rows.");
 
             var headers = lines[0].Split(',');
-            int idxKey = Array.IndexOf(headers, "key");
-            int idxValue = Array.IndexOf(headers, "value");
+            var colIndex = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            for (int i = 0; i < headers.Length; i++)
+                colIndex[headers[i].Trim()] = i;
 
-            if (idxKey < 0 || idxValue < 0) return;
+            string Get(string col, string[] parts) =>
+                colIndex.TryGetValue(col, out int idx) && idx < parts.Length ? parts[idx].Trim() : "";
 
-            foreach (var line in lines.Skip(1))
-            {
-                var parts = line.Split(',');
-                if (parts.Length <= Math.Max(idxKey, idxValue)) continue;
-                string key = parts[idxKey].Trim();
-                string val = parts[idxValue].Trim();
+            _allRows.Clear();
 
-                if (key == "padding_x" && float.TryParse(val, out float px))
-                    _paddingX = px;
-                else if (key == "padding_y" && float.TryParse(val, out float py))
-                    _paddingY = py;
-            }
-            Console.WriteLine($"[SceneTree] Padding: X={_paddingX}, Y={_paddingY}");
-        }
-
-        private static void LoadRowTemplates(string path)
-        {
-            if (!File.Exists(path))
-            {
-                Console.WriteLine($"[SceneTree] ERROR: Missing {path}");
-                return;
-            }
-            var lines = File.ReadAllLines(path);
-            if (lines.Length < 2) return;
-
-            var headers = lines[0].Split(',');
-            int idxTarget = Array.IndexOf(headers, "target");
-            int idxTemplate = Array.IndexOf(headers, "row_panel_id");
-
-            _rowTemplateMap.Clear();
             for (int i = 1; i < lines.Length; i++)
             {
-                var parts = lines[i].Split(',');
-                if (parts.Length <= Math.Max(idxTarget, idxTemplate)) continue;
-                string target = parts[idxTarget].Trim();
-                string template = parts[idxTemplate].Trim();
-                if (!string.IsNullOrEmpty(target) && !string.IsNullOrEmpty(template))
+                var line = lines[i].Trim();
+                if (string.IsNullOrEmpty(line) || line.StartsWith('#')) continue;
+                var parts = line.Split(',');
+
+                _allRows.Add(new RowConfig
                 {
-                    _rowTemplateMap[target] = template;
-                    Console.WriteLine($"[SceneTree] Row template: {target} -> {template}");
-                }
+                    ParentType = Get("parent_type", parts),
+                    ChildType = Get("child_type", parts),
+                    TypeName = Get("type_name", parts),
+                    RowTemplate = Get("row_template", parts),
+                    MenuTemplate = Get("menu_template", parts),
+                    CreateComponents = Get("create_components", parts).Split(';', StringSplitOptions.RemoveEmptyEntries),
+                    Value = Get("value", parts)
+                });
             }
-            Console.WriteLine($"[SceneTree] Loaded {_rowTemplateMap.Count} row templates.");
+
+            Console.WriteLine($"[SceneTree] Loaded {_allRows.Count} configuration rows.");
         }
 
-        private static void BuildMenuTemplateMap()
+        private static void BuildLookups()
         {
-            _menuTemplateIdMap["Scene"]   = StringRegistry.GetOrAdd("scene_menu_Scene");
-            _menuTemplateIdMap["Camera"]  = StringRegistry.GetOrAdd("scene_menu_Camera");
-            _menuTemplateIdMap["Light"]   = StringRegistry.GetOrAdd("scene_menu_Light");
-            _menuTemplateIdMap["Terrain"] = StringRegistry.GetOrAdd("scene_menu_Terrain");
-            _menuTemplateIdMap["Object"]  = StringRegistry.GetOrAdd("scene_menu_Object");
-            _menuTemplateIdMap["Parent"]  = StringRegistry.GetOrAdd("scene_menu_Parent");
+            _typeToConfig.Clear();
+            _parentToChildren.Clear();
+            _menuItemIdToConfig.Clear();
+
+            foreach (var row in _allRows)
+            {
+                if (row.ParentType == "Config")
+                {
+                    if (row.ChildType == "padding_x" && float.TryParse(row.Value, out float px)) _paddingX = px;
+                    else if (row.ChildType == "padding_y" && float.TryParse(row.Value, out float py)) _paddingY = py;
+                    else if (row.ChildType == "menu_offset_x" && float.TryParse(row.Value, out float mx)) _menuOffsetX = mx;
+                    else if (row.ChildType == "menu_offset_y" && float.TryParse(row.Value, out float my)) _menuOffsetY = my;
+                    else if (row.ChildType == "menu_anchor") _menuAnchor = row.Value;
+                }
+                else
+                {
+                    if (!string.IsNullOrEmpty(row.TypeName))
+                    {
+                        _typeToConfig[row.TypeName] = row;
+                        Console.WriteLine($"[SceneTree] Registered type: {row.TypeName}");
+                    }
+
+                    if (!string.IsNullOrEmpty(row.ParentType))
+                    {
+                        if (!_parentToChildren.ContainsKey(row.ParentType))
+                            _parentToChildren[row.ParentType] = new List<RowConfig>();
+                        _parentToChildren[row.ParentType].Add(row);
+                    }
+
+                    if (!string.IsNullOrEmpty(row.MenuTemplate))
+                    {
+                        int menuItemId = StringRegistry.GetOrAdd(row.MenuTemplate);
+                        _menuItemIdToConfig[menuItemId] = row;
+                        Console.WriteLine($"[SceneTree] Mapped menu item '{row.MenuTemplate}' (ID {menuItemId}) to config for type '{row.TypeName}'");
+                    }
+                }
+            }
+
+            Console.WriteLine($"[SceneTree] Settings: padding=({_paddingX},{_paddingY}) offset=({_menuOffsetX},{_menuOffsetY}) anchor={_menuAnchor}");
+            Console.WriteLine($"[SceneTree] Registered {_typeToConfig.Count} entity types, {_menuItemIdToConfig.Count} menu item mappings.");
         }
 
         private static void HideAllTemplates()
@@ -135,18 +171,25 @@ namespace SETUE.UI
             Console.WriteLine("[SceneTree] All templates hidden.");
         }
 
-        // ---------------------------------------------------------------------
-        // Main Update
-        // ---------------------------------------------------------------------
         public static void Update()
         {
             var world = Object.ECSWorld;
-            if (!TryGetContainer(world)) return;
+            if (!TryGetContainer(world))
+            {
+                Console.WriteLine("[SceneTree] Update: Container not found.");
+                return;
+            }
             EnsureSceneRoot(world);
             world.ExecuteCommands();
             var hierarchy = BuildHierarchy(world);
             SyncRows(world, hierarchy);
             UpdateRows(world, hierarchy);
+
+            if (Input.IsEditing)
+            {
+                if (Input.EditConfirmed) OnEditConfirmed();
+                else if (Input.EditCancelled) OnEditCancelled();
+            }
         }
 
         private static bool TryGetContainer(World world)
@@ -170,6 +213,7 @@ namespace SETUE.UI
                 {
                     _containerEntity = e;
                     _containerTransform = world.GetComponent<TransformComponent>(e);
+                    Console.WriteLine($"[SceneTree] Container found: entity {e.Index}");
                 }
             });
             return _containerEntity.HasValue;
@@ -189,6 +233,7 @@ namespace SETUE.UI
                 world.AddComponent(_sceneRoot.Value, new SceneRootComponent());
                 world.AddComponent(_sceneRoot.Value, new TransformComponent { Position = Vector3.Zero, Scale = Vector3.One });
                 world.AddComponent(_sceneRoot.Value, new NameComponent { NameId = StringRegistry.GetOrAdd("Scene") });
+                world.AddComponent(_sceneRoot.Value, new EntityTypeComponent { TypeNameId = StringRegistry.GetOrAdd("Scene") });
                 Console.WriteLine($"[SceneTree] Created Scene root entity {_sceneRoot.Value.Index}.");
             }
         }
@@ -209,6 +254,7 @@ namespace SETUE.UI
                     if (p.Parent == cur) queue.Enqueue((child, depth + 1));
                 });
             }
+            Console.WriteLine($"[SceneTree] Hierarchy built: {result.Count} entities.");
             return result;
         }
 
@@ -217,6 +263,7 @@ namespace SETUE.UI
             var toRemove = _rows.Keys.Where(e => !hierarchy.ContainsKey(e)).ToList();
             foreach (var e in toRemove)
             {
+                Console.WriteLine($"[SceneTree] Removing row for entity {e.Index}");
                 world.DestroyEntity(_rows[e].PanelEntity);
                 _rows.Remove(e);
             }
@@ -224,31 +271,53 @@ namespace SETUE.UI
             {
                 if (e == _sceneRoot) continue;
                 if (!_rows.ContainsKey(e))
+                {
+                    Console.WriteLine($"[SceneTree] Creating row for entity {e.Index} (type {GetEntityTypeName(world, e)})");
                     CreateRow(world, e, depth);
+                }
             }
         }
 
         private static void CreateRow(World world, Entity target, int depth)
         {
-            string type = GetEntityTypeName(world, target);
-            if (!_rowTemplateMap.TryGetValue(type, out string? tmpl) &&
-                !_rowTemplateMap.TryGetValue("Object", out tmpl))
+            string typeName = GetEntityTypeName(world, target);
+            Console.WriteLine($"[SceneTree] CreateRow: target={target.Index}, type='{typeName}'");
+
+            if (!_typeToConfig.TryGetValue(typeName, out var config))
             {
-                Console.WriteLine($"[SceneTree] No row template for type '{type}' or 'Object'");
+                Console.WriteLine($"[SceneTree] ERROR: No config for type '{typeName}'");
                 return;
             }
 
-            Entity? template = FindPanelById(world, StringRegistry.GetOrAdd(tmpl));
-            if (!template.HasValue) return;
+            string rowTemplateId = config.RowTemplate;
+            if (string.IsNullOrEmpty(rowTemplateId))
+            {
+                Console.WriteLine($"[SceneTree] ERROR: RowTemplate empty for type '{typeName}'");
+                return;
+            }
 
+            int templateId = StringRegistry.GetOrAdd(rowTemplateId);
+            Entity? template = FindPanelById(world, templateId);
+            if (!template.HasValue)
+            {
+                Console.WriteLine($"[SceneTree] ERROR: Template panel '{rowTemplateId}' (ID {templateId}) not found!");
+                return;
+            }
+
+            Console.WriteLine($"[SceneTree] Cloning template '{rowTemplateId}' for target {target.Index}");
             Entity row = ClonePanel(world, template.Value, target);
-            if (row.Index == 0) return;
+            if (row.Index == 0)
+            {
+                Console.WriteLine("[SceneTree] ERROR: ClonePanel returned invalid entity.");
+                return;
+            }
 
             var drag = world.HasComponent<DragComponent>(row) ? world.GetComponent<DragComponent>(row) : new DragComponent();
             drag.ParentNameId = _containerPanelId;
             world.SetComponent(row, drag);
 
             _rows[target] = new RowData { PanelEntity = row, TargetEntity = target, Depth = depth };
+            Console.WriteLine($"[SceneTree] Row created: panel entity {row.Index} for target {target.Index}");
         }
 
         private static Entity? FindPanelById(World world, int id)
@@ -262,7 +331,7 @@ namespace SETUE.UI
         {
             var tTrans = world.GetComponent<TransformComponent>(template);
             var tPanel = world.GetComponent<PanelComponent>(template);
-            var tMat   = world.GetComponent<MaterialComponent>(template);
+            var tMat = world.GetComponent<MaterialComponent>(template);
 
             float w = _containerTransform.Scale.X - _paddingX * 2f;
             float h = tTrans.Scale.Y;
@@ -270,21 +339,8 @@ namespace SETUE.UI
             int newId = StringRegistry.GetOrAdd($"_st_{target.Index}");
             Entity e = world.CreateEntity();
             world.AddComponent(e, new TransformComponent { Position = Vector3.Zero, Scale = new Vector3(w, h, 1) });
-            world.AddComponent(e, new PanelComponent
-            {
-                Id = newId,
-                Visible = true,
-                Layer = tPanel.Layer,
-                Clickable = tPanel.Clickable,
-                TextId = tPanel.TextId,
-                Alpha = tPanel.Alpha,
-                ClipChildren = tPanel.ClipChildren
-            });
-            world.AddComponent(e, new MaterialComponent
-            {
-                PipelineId = tMat.PipelineId,
-                Color = tMat.Color
-            });
+            world.AddComponent(e, new PanelComponent { Id = newId, Visible = true, Layer = tPanel.Layer, Clickable = tPanel.Clickable, TextId = tPanel.TextId });
+            world.AddComponent(e, new MaterialComponent { PipelineId = tMat.PipelineId, Color = tMat.Color });
 
             if (world.HasComponent<TextComponent>(template))
             {
@@ -299,15 +355,11 @@ namespace SETUE.UI
                     Color = txt.Color,
                     Align = txt.Align,
                     VAlign = txt.VAlign,
-                    Layer = txt.Layer,
+                    Layer = tPanel.Layer + 1,
                     PanelId = newId,
                     PadLeft = txt.PadLeft,
                     PadTop = txt.PadTop,
-                    LineHeight = txt.LineHeight,
-                    Rotation = txt.Rotation,
-                    Source = txt.Source,
-                    Prefix = txt.Prefix,
-                    StyleId = txt.StyleId
+                    LineHeight = txt.LineHeight
                 });
             }
             return e;
@@ -315,9 +367,17 @@ namespace SETUE.UI
 
         private static void UpdateRows(World world, Dictionary<Entity, int> hierarchy)
         {
+            if (_containerEntity == null)
+            {
+                Console.WriteLine("[SceneTree] UpdateRows: Container entity is null.");
+                return;
+            }
+
             float left = _containerTransform.Position.X - _containerTransform.Scale.X * 0.5f;
-            float top  = _containerTransform.Position.Y - _containerTransform.Scale.Y * 0.5f;
+            float top = _containerTransform.Position.Y - _containerTransform.Scale.Y * 0.5f;
             float y = 104 + _paddingY;
+
+            Console.WriteLine($"[SceneTree] UpdateRows: container=({left:F0},{top:F0}) startY={y:F0}");
 
             foreach (var e in hierarchy.OrderBy(kv => kv.Value).ThenBy(kv => kv.Key.Index).Select(kv => kv.Key))
             {
@@ -326,6 +386,7 @@ namespace SETUE.UI
                 float h = trans.Scale.Y;
                 trans.Position = new Vector3(left + _paddingX + (_containerTransform.Scale.X - _paddingX * 2f) * 0.5f, y + h * 0.5f, 0);
                 world.SetComponent(row.PanelEntity, trans);
+                Console.WriteLine($"[SceneTree]   Row for '{GetDisplayName(e)}' at Y={y:F0}");
                 y += h;
                 if (y + h > top + _containerTransform.Scale.Y - _paddingY) break;
             }
@@ -333,11 +394,8 @@ namespace SETUE.UI
 
         private static string GetEntityTypeName(World world, Entity e)
         {
-            if (world.HasComponent<SceneRootComponent>(e)) return "Scene";
-            if (world.HasComponent<CameraComponent>(e))   return "Camera";
-            if (world.HasComponent<LightComponent>(e))    return "Light";
-            if (world.HasComponent<TerrainComponent>(e))  return "Terrain";
-            if (world.HasComponent<MeshComponent>(e))     return "Object";
+            if (world.HasComponent<EntityTypeComponent>(e))
+                return StringRegistry.GetString(world.GetComponent<EntityTypeComponent>(e).TypeNameId);
             return "Object";
         }
 
@@ -350,7 +408,7 @@ namespace SETUE.UI
         }
 
         // ---------------------------------------------------------------------
-        // Context Menu – Reuses template, shifts all parts together
+        // Context Menu
         // ---------------------------------------------------------------------
         public static void ShowContextMenu(World world, int clickedPanelId, Vector2 mousePos)
         {
@@ -366,20 +424,31 @@ namespace SETUE.UI
 
             if (!target.HasValue) return;
 
-            string type = GetEntityTypeName(world, target.Value);
-            if (!_menuTemplateIdMap.TryGetValue(type, out int templateId)) return;
+            _currentContextEntity = target.Value;
+            _selectedEntity = target.Value;
 
-            Entity? template = FindPanelById(world, templateId);
+            string typeName = GetEntityTypeName(world, target.Value);
+            Console.WriteLine($"[SceneTree] Target type: {typeName}");
+
+            if (!_typeToConfig.TryGetValue(typeName, out var config))
+            {
+                Console.WriteLine($"[SceneTree] No config for type '{typeName}'");
+                return;
+            }
+
+            string menuTemplateId = config.MenuTemplate;
+            Console.WriteLine($"[SceneTree] Menu template ID from config: '{menuTemplateId}'");
+
+            if (string.IsNullOrEmpty(menuTemplateId)) return;
+
+            Entity? template = FindPanelById(world, StringRegistry.GetOrAdd(menuTemplateId));
             if (!template.HasValue) return;
 
-            // Hide any currently open menu (restores original positions)
             HideContextMenu(world);
 
-            // Use the template entity directly
             _activeMenuContainer = template.Value;
             int containerPanelId = world.GetComponent<PanelComponent>(_activeMenuContainer.Value).Id;
 
-            // Collect all menu items (children of this container)
             _activeMenuItems.Clear();
             world.ForEach<PanelComponent>((Entity e) =>
             {
@@ -387,13 +456,11 @@ namespace SETUE.UI
                 {
                     var drag = world.GetComponent<DragComponent>(e);
                     if (drag.ParentNameId == containerPanelId)
-                    {
                         _activeMenuItems.Add(e);
-                    }
                 }
             });
+            Console.WriteLine($"[SceneTree] Found {_activeMenuItems.Count} child menu items.");
 
-            // Store original positions of container and all children
             _originalPositions.Clear();
             var containerTrans = world.GetComponent<TransformComponent>(_activeMenuContainer.Value);
             _originalPositions[_activeMenuContainer.Value] = containerTrans.Position;
@@ -403,27 +470,50 @@ namespace SETUE.UI
                 _originalPositions[item] = itemTrans.Position;
             }
 
-            // Calculate desired top-left position (mouse + small offset)
-            float menuWidth  = containerTrans.Scale.X;
+            float menuWidth = containerTrans.Scale.X;
             float menuHeight = containerTrans.Scale.Y;
-            float desiredX = mousePos.X + 5f;
-            float desiredY = mousePos.Y + 5f;
+            float desiredX, desiredY;
 
-            // Clamp to screen
-            float sw = Vulkan.SwapExtent.Width;
-            float sh = Vulkan.SwapExtent.Height;
+            if (_menuAnchor == "parent_bottom")
+            {
+                Entity? rowPanelEntity = null;
+                if (target.Value == _sceneRoot)
+                    rowPanelEntity = FindPanelById(world, StringRegistry.GetOrAdd("_st_Scene"));
+                else if (_rows.TryGetValue(target.Value, out var rowData))
+                    rowPanelEntity = rowData.PanelEntity;
+
+                if (rowPanelEntity.HasValue)
+                {
+                    var rowTrans = world.GetComponent<TransformComponent>(rowPanelEntity.Value);
+                    float rowLeft   = rowTrans.Position.X - rowTrans.Scale.X * 0.5f;
+                    float rowBottom = rowTrans.Position.Y + rowTrans.Scale.Y * 0.5f;
+                    desiredX = rowLeft + _menuOffsetX;
+                    desiredY = rowBottom + _menuOffsetY;
+                }
+                else
+                {
+                    desiredX = mousePos.X + _menuOffsetX;
+                    desiredY = mousePos.Y + _menuOffsetY;
+                }
+            }
+            else
+            {
+                desiredX = mousePos.X + _menuOffsetX;
+                desiredY = mousePos.Y + _menuOffsetY;
+            }
+
+            float sw = SwapExtent.Width;
+            float sh = SwapExtent.Height;
             if (desiredX + menuWidth > sw) desiredX = sw - menuWidth;
             if (desiredY + menuHeight > sh) desiredY = sh - menuHeight;
             if (desiredX < 0) desiredX = 0;
             if (desiredY < 0) desiredY = 0;
 
-            // Compute offset from current container top-left to desired top-left
             float currentLeft = containerTrans.Position.X - menuWidth * 0.5f;
-            float currentTop  = containerTrans.Position.Y - menuHeight * 0.5f;
+            float currentTop = containerTrans.Position.Y - menuHeight * 0.5f;
             float offsetX = desiredX - currentLeft;
             float offsetY = desiredY - currentTop;
 
-            // Apply offset to container and all children
             containerTrans.Position += new Vector3(offsetX, offsetY, 0);
             world.SetComponent(_activeMenuContainer.Value, containerTrans);
 
@@ -434,7 +524,6 @@ namespace SETUE.UI
                 world.SetComponent(item, itemTrans);
             }
 
-            // Make container and children visible
             var panel = world.GetComponent<PanelComponent>(_activeMenuContainer.Value);
             panel.Visible = true;
             world.SetComponent(_activeMenuContainer.Value, panel);
@@ -447,14 +536,13 @@ namespace SETUE.UI
             }
 
             world.ExecuteCommands();
-            Console.WriteLine($"[SceneTree] Menu '{StringRegistry.GetString(panel.Id)}' shown at ({desiredX:F0},{desiredY:F0})");
+            Console.WriteLine($"[SceneTree] Menu shown at ({desiredX:F0},{desiredY:F0}) anchor={_menuAnchor}");
         }
 
         public static void HideContextMenu(World world)
         {
             if (_activeMenuContainer.HasValue)
             {
-                // Restore original positions
                 foreach (var kv in _originalPositions)
                 {
                     if (world.HasComponent<TransformComponent>(kv.Key))
@@ -465,12 +553,10 @@ namespace SETUE.UI
                     }
                 }
 
-                // Hide container
                 var panel = world.GetComponent<PanelComponent>(_activeMenuContainer.Value);
                 panel.Visible = false;
                 world.SetComponent(_activeMenuContainer.Value, panel);
 
-                // Hide children
                 foreach (var item in _activeMenuItems)
                 {
                     if (world.HasComponent<PanelComponent>(item))
@@ -485,7 +571,7 @@ namespace SETUE.UI
                 _activeMenuItems.Clear();
                 _originalPositions.Clear();
                 world.ExecuteCommands();
-                Console.WriteLine("[SceneTree] Context menu hidden and original positions restored.");
+                Console.WriteLine("[SceneTree] Context menu hidden.");
             }
         }
 
@@ -495,13 +581,11 @@ namespace SETUE.UI
         public static void RenameSelected(int panelId, Vector2 mousePos)
         {
             var world = Object.ECSWorld;
-            Entity? target = null;
-            if (panelId == StringRegistry.GetOrAdd("_st_Scene")) target = _sceneRoot;
-            else foreach (var kv in _rows) if (world.GetComponent<PanelComponent>(kv.Value.PanelEntity).Id == panelId) target = kv.Key;
+            Entity? target = _selectedEntity ?? _currentContextEntity;
             if (!target.HasValue) return;
 
             string curName = GetDisplayName(target.Value);
-            SETUE.Controls.Input.StartEdit(curName, $"Rename {curName}");
+            Input.StartEdit(curName, $"Rename {curName}");
             _pendingRenameEntity = target;
             HideContextMenu(world);
         }
@@ -509,27 +593,79 @@ namespace SETUE.UI
         public static void DeleteSelected(int panelId, Vector2 mousePos)
         {
             var world = Object.ECSWorld;
-            Entity? target = null;
-            if (panelId == StringRegistry.GetOrAdd("_st_Scene")) target = _sceneRoot;
-            else foreach (var kv in _rows) if (world.GetComponent<PanelComponent>(kv.Value.PanelEntity).Id == panelId) target = kv.Key;
+            Entity? target = _selectedEntity ?? _currentContextEntity;
             if (!target.HasValue || target == _sceneRoot) return;
 
             world.DestroyEntity(target.Value);
             world.ExecuteCommands();
             Console.WriteLine($"[SceneTree] Deleted entity {target.Value.Index}");
             HideContextMenu(world);
+            _selectedEntity = null;
         }
 
         public static void CreateChild(int panelId, Vector2 mousePos)
         {
-            Console.WriteLine($"[SceneTree] CreateChild called from panel {StringRegistry.GetString(panelId)}");
-            HideContextMenu(Object.ECSWorld);
+            Console.WriteLine($"[SceneTree] >>>>> CREATE CHILD CALLED panelId={StringRegistry.GetString(panelId)} <<<<<");
+            var world = Object.ECSWorld;
+            Entity? parent = _selectedEntity ?? _currentContextEntity ?? _sceneRoot;
+            if (!parent.HasValue)
+            {
+                Console.WriteLine("[SceneTree] CreateChild: No parent entity available.");
+                HideContextMenu(world);
+                return;
+            }
+            Console.WriteLine($"[SceneTree] CreateChild: Parent entity = {GetDisplayName(parent.Value)} (type {GetEntityTypeName(world, parent.Value)})");
+
+            if (!_menuItemIdToConfig.TryGetValue(panelId, out var config))
+            {
+                Console.WriteLine($"[SceneTree] CreateChild: No config found for menu item ID {panelId} ('{StringRegistry.GetString(panelId)}')");
+                HideContextMenu(world);
+                return;
+            }
+            Console.WriteLine($"[SceneTree] CreateChild: Found config for type '{config.TypeName}' with components: {string.Join(", ", config.CreateComponents)}");
+
+            CreateEntity(world, parent.Value, config);
+            HideContextMenu(world);
+        }
+
+        private static void CreateEntity(World world, Entity parent, RowConfig config)
+        {
+            Entity newEntity = world.CreateEntity();
+            string newName = $"{config.TypeName}_{newEntity.Index}";
+            Console.WriteLine($"[SceneTree] CreateEntity: Creating '{newName}' under parent '{GetDisplayName(parent)}'");
+
+            world.AddComponent(newEntity, new TransformComponent { Position = Vector3.Zero, Scale = Vector3.One });
+            world.AddComponent(newEntity, new NameComponent { NameId = StringRegistry.GetOrAdd(newName) });
+            world.AddComponent(newEntity, new ParentComponent { Parent = parent });
+            world.AddComponent(newEntity, new EntityTypeComponent { TypeNameId = StringRegistry.GetOrAdd(config.TypeName) });
+            Console.WriteLine($"[SceneTree] CreateEntity: Added core components (Transform, Name, Parent, EntityType)");
+
+            foreach (string compName in config.CreateComponents)
+            {
+                Type? compType = Type.GetType($"SETUE.ECS.{compName}") ?? Type.GetType(compName);
+                if (compType != null && typeof(IComponent).IsAssignableFrom(compType))
+                {
+                    var instance = Activator.CreateInstance(compType);
+                    if (instance != null)
+                    {
+                        world.GetType().GetMethod("AddComponent")?.MakeGenericMethod(compType).Invoke(world, new object[] { newEntity, instance });
+                        Console.WriteLine($"[SceneTree] CreateEntity: Added component '{compName}'");
+                    }
+                }
+                else
+                {
+                    Console.WriteLine($"[SceneTree] CreateEntity: WARNING - Could not resolve component type '{compName}'");
+                }
+            }
+
+            world.ExecuteCommands();
+            Console.WriteLine($"[SceneTree] CreateEntity: Entity created with index {newEntity.Index}, type '{config.TypeName}'");
         }
 
         public static void OnEditConfirmed()
         {
             if (!_pendingRenameEntity.HasValue) return;
-            string newName = SETUE.Controls.Input.EditBuffer;
+            string newName = Input.EditBuffer;
             if (string.IsNullOrWhiteSpace(newName)) return;
 
             var world = Object.ECSWorld;
@@ -539,24 +675,23 @@ namespace SETUE.UI
                 nameComp.NameId = StringRegistry.GetOrAdd(newName);
                 world.SetComponent(_pendingRenameEntity.Value, nameComp);
             }
-            else
-            {
-                world.AddComponent(_pendingRenameEntity.Value, new NameComponent { NameId = StringRegistry.GetOrAdd(newName) });
-            }
+            else world.AddComponent(_pendingRenameEntity.Value, new NameComponent { NameId = StringRegistry.GetOrAdd(newName) });
 
-            if (_rows.TryGetValue(_pendingRenameEntity.Value, out var row))
+            if (_rows.TryGetValue(_pendingRenameEntity.Value, out var row) && world.HasComponent<TextComponent>(row.PanelEntity))
             {
                 var txt = world.GetComponent<TextComponent>(row.PanelEntity);
                 txt.ContentId = StringRegistry.GetOrAdd(newName);
                 world.SetComponent(row.PanelEntity, txt);
             }
             _pendingRenameEntity = null;
+            Input.EndEdit();
             Console.WriteLine($"[SceneTree] Renamed to '{newName}'");
         }
 
         public static void OnEditCancelled()
         {
             _pendingRenameEntity = null;
+            Input.EndEdit();
             Console.WriteLine("[SceneTree] Rename cancelled.");
         }
     }
