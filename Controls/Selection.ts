@@ -1,4 +1,4 @@
-// Controls/Selection.ts – dead‑import removed, core‑panels‑skip active
+// Controls/Selection.ts – fixed toggleTabArea for non‑panel entities
 import { registerSystemMethod } from '../Core/Scheduler.js';
 import { getWorld } from '../Core/GlobalWorld.js';
 import { Input, IsActionPressed, ConsumeAction } from './Input.js';
@@ -475,26 +475,21 @@ function closeOpenDropdown() {
   if (openDropdownName) { closeDropdown(openDropdownName); openDropdownName = null; }
 }
 
-// ---------- TAB SWITCHING (core panels untouched, dead overlay removed) ----------
+// ---------- TAB SWITCHING (works for entities with or without PanelComponent) ----------
 function toggleTabArea(areaName: string) {
   const world = getWorld();
   const areaFile = panelSourceFile.get(areaName);
   if (!areaFile) return;
 
   for (const [pname, entity] of panelEntities) {
-    const panel = world.getComponent<PanelComponent>(entity, 'PanelComponent');
-    if (!panel) continue;
-
     const file = panelSourceFile.get(pname) ?? 'PanelCore.csv';
+    if (file === 'PanelCore.csv') continue;               // core panels are never touched
 
-    // Core panels are never toggled – they keep their original visibility
-    if (file === 'PanelCore.csv') continue;
-
-    const shouldBeVisible = (file === areaFile);
-    setEntityVisible(entity, shouldBeVisible);
+    const shouldBeVisible = (file === areaFile);           // show only panels from the active tab's file
+    setEntityVisible(entity, shouldBeVisible);             // works on panels, selectables, and sprites
   }
 
-  // Only keep the system editor overlay (ImageEditorContent was deleted)
+  // System editor overlay
   import('../Systems/SystemEditor.js').then(m =>
     m.toggleSystemEditor(areaName === 'system_editor_area')
   );
