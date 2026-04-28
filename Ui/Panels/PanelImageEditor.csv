@@ -1,0 +1,5 @@
+parent_name,object_name,left,right,top,bottom,visible,layer,clickable,alpha,text_id,font_id,color_id,text_color_id,move_edge,min_x,max_x,call_script,clip_children
+nav_bar,image_editor_area,0,1920,60,1040,false,9,false,1,,,DarkGray,,,,,,false
+right_border,paste_image_btn,1564,1590,220,260,false,13,true,1,paste_image_text,,NavyBlueDark,White,,,,,false
+right_border,select_rect_btn,1564,1590,270,310,false,13,true,1,select_rect_text,,NavyBlueDark,White,,,,,false
+image_editor_area,_image_template,0,0,0,0,false,10,true,1,,,White,White,all,,,drag_xy,false

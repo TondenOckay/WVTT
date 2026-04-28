@@ -1,6 +1,6 @@
 // Controls/Input.ts
-import { parseCsvArray } from '../parseCsv.js';
 import { registerSystemMethod } from '../Core/Scheduler.js';
+import { BaseWorldData } from '../Core/BaseWorldData.js';
 
 interface Binding {
   input: string;
@@ -16,6 +16,7 @@ const pressed = new Set<string>();
 export const Input = {
   _mouseX: 0, _mouseY: 0, _mouseDX: 0, _mouseDY: 0, _scroll: 0,
   _ctrl: false, _shift: false,
+  _held: held,
 
   get MousePos() { return { x: this._mouseX, y: this._mouseY }; },
   get MouseDelta() { return { x: this._mouseDX, y: this._mouseDY }; },
@@ -26,7 +27,7 @@ export const Input = {
   IsEditing: false, EditBuffer: '', EditSource: '', EditConfirmed: false, EditCancelled: false,
 };
 
-function toLogicalCoord(clientX: number, clientY: number): { x: number; y: number } {
+function toLogicalCoord(clientX: number, clientY: number) {
   const canvas = document.querySelector('canvas');
   if (!canvas) return { x: 0, y: 0 };
   const rect = canvas.getBoundingClientRect();
@@ -36,24 +37,18 @@ function toLogicalCoord(clientX: number, clientY: number): { x: number; y: numbe
 }
 
 function Load() {
-  fetch('Controls/Input.csv')
-    .then(r => r.text())
-    .then(text => {
-      const rows = parseCsvArray(text);
-      actionBindings.clear();
-      actionEnabled.clear();
-      for (const row of rows) {
-        const action = row['action'] ?? '';
-        const input = row['input'] ?? '';
-        const modifier = row['modifier'] ?? '';
-        const editChar = row['edit_char'] ?? '';
-        if (!action) continue;
-        if (!actionBindings.has(action)) actionBindings.set(action, []);
-        actionBindings.get(action)!.push({ input, modifier, editChar });
-        if (row['enabled'] === 'true') actionEnabled.add(action);
-      }
-      console.log(`[Input] Loaded ${actionBindings.size} actions`);
-    });
+  // Load bindings from base world data
+  for (const row of BaseWorldData.input) {
+    const action = row['action'];
+    const input = row['input'] ?? '';
+    const modifier = row['modifier'] ?? '';
+    const editChar = row['edit_char'] ?? '';
+    if (!action) continue;
+    if (!actionBindings.has(action)) actionBindings.set(action, []);
+    actionBindings.get(action)!.push({ input, modifier, editChar });
+    if (row['enabled'] === 'true') actionEnabled.add(action);
+  }
+  console.log(`[Input] Loaded ${actionBindings.size} actions`);
 
   const canvas = document.querySelector('canvas');
   if (canvas) {
@@ -97,7 +92,7 @@ function Load() {
   }
 }
 
-function mouseButtonName(button: number): string {
+function mouseButtonName(button: number) {
   switch (button) {
     case 0: return 'MouseLeft';
     case 1: return 'MouseMiddle';
@@ -106,14 +101,13 @@ function mouseButtonName(button: number): string {
   }
 }
 
-// ------------- modifier‑aware checks -------------
-function modifierMatches(desired: string): boolean {
+function modifierMatches(desired: string) {
   if (desired === 'Ctrl') return Input._ctrl;
   if (desired === 'Shift') return Input._shift;
-  return !desired; // empty string → no modifier must be active
+  return !desired;
 }
 
-export function IsActionHeld(action: string): boolean {
+export function IsActionHeld(action: string) {
   if (!actionEnabled.has(action)) return false;
   const bindings = actionBindings.get(action);
   if (!bindings) return false;
@@ -123,7 +117,7 @@ export function IsActionHeld(action: string): boolean {
   return false;
 }
 
-export function IsActionPressed(action: string): boolean {
+export function IsActionPressed(action: string) {
   if (!actionEnabled.has(action)) return false;
   const bindings = actionBindings.get(action);
   if (!bindings) return false;

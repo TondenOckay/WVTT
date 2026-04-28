@@ -8,6 +8,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@pixi/compressed-textures": "^7.4.3",
+    "@pixi/gif": "^3.0.1",
     "pixi.js": "^8.2.0"
   },
   "devDependencies": {

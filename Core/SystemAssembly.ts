@@ -13,3 +13,10 @@ import '../Controls/Input.js';
 import '../Controls/Selection.js';
 import '../Controls/Movement.js';
 import '../Controls/Camera.js';
+import '../Systems/ImagePasteHandler.js';
+import '../Systems/ScriptRunner.js';
+import '../Systems/FileMenuActions.js';
+import '../Systems/SystemEditor.js';        // <-- present
+import '../Assets/Assets.js';
+import '../Ui/Objects2D.js';
+// AssetStore will be added when the file is created

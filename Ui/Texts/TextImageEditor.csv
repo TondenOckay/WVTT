@@ -1,0 +1,3 @@
+id,panel_id,text,font_id,color_id,align,valign,layer,rotation,source,prefix,pad_left,pad_top,line_height
+paste_image_text,paste_image_btn,Paste,default,White,center,middle,14,0,,,4,0,16
+select_rect_text,select_rect_btn,Select Rect,default,White,center,middle,14,0,,,2,0,14

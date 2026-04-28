@@ -9,7 +9,6 @@ export function parseSettingsCsv(csvText: string): SettingsRecord {
   const lines = csvText.trim().split('\n');
   const settings: SettingsRecord = {};
 
-  // Assume first line is header "Setting,Value", skip it
   for (let i = 1; i < lines.length; i++) {
     const trimmed = lines[i].trim();
     if (trimmed === '' || trimmed.startsWith('#')) continue;
@@ -19,7 +18,6 @@ export function parseSettingsCsv(csvText: string): SettingsRecord {
     settings[key.trim()] = value;
   }
 
-  // Convert known numeric/boolean keys
   if (settings['Width'] !== undefined)     settings['Width']     = parseFloat(settings['Width'] as string);
   if (settings['Height'] !== undefined)    settings['Height']    = parseFloat(settings['Height'] as string);
   if (settings['Resizable'] !== undefined) settings['Resizable'] = (settings['Resizable'] as string).toLowerCase() === 'true';
@@ -32,6 +30,11 @@ export function parseSettingsCsv(csvText: string): SettingsRecord {
 
 // ---------- Array‑of‑objects CSV (like Scheduler.csv, Panel.csv, etc.) ----------
 export function parseCsvArray(csvText: string): Record<string, string>[] {
+  // Strip BOM (Byte Order Mark) if present at the very start
+  if (csvText.charCodeAt(0) === 0xFEFF) {
+    csvText = csvText.slice(1);
+  }
+
   const lines = csvText.trim().split('\n');
   if (lines.length < 2) return [];
   

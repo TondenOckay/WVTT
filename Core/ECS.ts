@@ -1,22 +1,22 @@
 // ============================================================
 // ECS.ts  –  Combined Entity Component System
-//            (mirrors your original ECS.cs + ECS.csv logic)
+//            Final zero‑allocation, production‑ready core
 // ============================================================
 
-import { parseCsvArray } from '../parseCsv.js'; // your generic CSV parser
+import { parseCsvArray } from '../parseCsv.js';
 
 // ------------------------------------------------------------------
-//  ENTITY
+//  ENTITY (kept for external identity, not used in hot loops)
 // ------------------------------------------------------------------
 export class Entity {
     constructor(public readonly index: number, public readonly generation: number) {}
     equals(other: Entity): boolean { return this.index === other.index && this.generation === other.generation; }
     toString(): string { return `Entity(${this.index}:${this.generation})`; }
-    static Null = new Entity(0, 0);
+    static Null = Object.freeze(new Entity(0, 0));
 }
 
 // ------------------------------------------------------------------
-//  COMPONENT INTERFACES  (mirrors your C# structs)
+//  COMPONENT INTERFACES
 // ------------------------------------------------------------------
 export interface IComponent { type: string; }
 
@@ -119,10 +119,33 @@ export interface LightComponent extends IComponent {
 }
 export interface TerrainComponent extends IComponent { type: 'TerrainComponent'; }
 
+export interface SelectableComponent extends IComponent {
+    type: 'SelectableComponent';
+    clickable: boolean;
+    visible: boolean;
+    layer: number;
+}
+
+export interface ImageComponent extends IComponent {
+    type: 'ImageComponent';
+    base64: string;
+    width: number;
+    height: number;
+    sprite?: any;
+}
+
+export interface ObjectTypeComponent extends IComponent {
+    type: 'ObjectTypeComponent';
+    objectType: string;   // matches the CSV object_type column
+}
+
 // ------------------------------------------------------------------
-//  SPARSE SET STORAGE  (exactly matches C# ComponentStorage<T>)
+//  SPARSE SET STORAGE
 // ------------------------------------------------------------------
-interface ComponentStorage { remove(entityIndex: number): void; has(entityIndex: number): boolean; }
+interface ComponentStorage {
+    remove(entityIndex: number): void;
+    has(entityIndex: number): boolean;
+}
 
 class SparseSetStorage<T extends IComponent> implements ComponentStorage {
     private dense: T[] = new Array(64);
@@ -173,10 +196,20 @@ class SparseSetStorage<T extends IComponent> implements ComponentStorage {
     getCount(): number { return this.count; }
     getDenseArray(): T[] { return this.dense; }
     getEntityIndices(): number[] { return this.entities; }
+
+    /** Zero‑allocation iteration: callback receives entityIndex and component reference */
+    forEachIndex(callback: (entityIndex: number, comp: T) => void): void {
+        const count = this.count;
+        const ents = this.entities;
+        const comps = this.dense;
+        for (let i = 0; i < count; i++) {
+            callback(ents[i], comps[i]);
+        }
+    }
 }
 
 // ------------------------------------------------------------------
-//  WORLD  (matches C# World class, including command buffer)
+//  WORLD
 // ------------------------------------------------------------------
 export class World {
     private nextEntityId = 1;
@@ -196,12 +229,11 @@ export class World {
     createEntity(): Entity {
         let index: number;
         if (this.freeIndices.length > 0) {
-            index = this.freeIndices.shift()!;
+            index = this.freeIndices.pop()!;   // O(1)
         } else {
             index = this.nextEntityId++;
             if (index >= this.generations.length) {
                 this.generations.length *= 2;
-                // new entries will be undefined; we fill with 0 later (they default to 0)
             }
         }
         const gen = (this.generations[index] ?? 0) + 1;
@@ -218,15 +250,18 @@ export class World {
         });
     }
 
-    // --- Component API ---
+    isAlive(index: number, generation: number): boolean {
+        return index < this.generations.length && this.generations[index] === generation;
+    }
+
+    // --- Component API (unchanged) ---
     addComponent<T extends IComponent>(e: Entity, comp: T): void {
         this.commands.push(() => {
-            if (e.index >= this.generations.length || this.generations[e.index] !== e.generation) return;
+            if (!this.isAlive(e.index, e.generation)) return;
             const storage = this.getStorage<T>(comp.type);
             if (!storage.has(e.index)) {
                 storage.add(e.index, comp);
             } else {
-                // overwrite
                 const denseIdx = storage['sparse'][e.index];
                 storage['dense'][denseIdx] = comp;
             }
@@ -234,54 +269,63 @@ export class World {
     }
 
     getComponent<T extends IComponent>(e: Entity, typeName: string): T | undefined {
-        if (e.index >= this.generations.length || this.generations[e.index] !== e.generation) return undefined;
+        if (!this.isAlive(e.index, e.generation)) return undefined;
         const storage = this.storages.get(typeName);
         return storage?.has(e.index) ? storage.get(e.index) as T : undefined;
     }
 
+    /**
+     * Get a component by entity index only, bypassing generation check.
+     * Safe inside zero‑allocation iterators where entities are guaranteed alive.
+     */
+    getComponentByIndex<T extends IComponent>(entityIndex: number, typeName: string): T | undefined {
+        const storage = this.storages.get(typeName) as SparseSetStorage<T>;
+        if (!storage) return undefined;
+        return storage.has(entityIndex) ? storage.get(entityIndex) : undefined;
+    }
+
     setComponent<T extends IComponent>(e: Entity, comp: T): void {
-        this.addComponent(e, comp);  // identical behavior
+        this.addComponent(e, comp);
     }
 
     hasComponent(e: Entity, typeName: string): boolean {
-        if (e.index >= this.generations.length || this.generations[e.index] !== e.generation) return false;
+        if (!this.isAlive(e.index, e.generation)) return false;
         const storage = this.storages.get(typeName);
         return storage ? storage.has(e.index) : false;
     }
 
     removeComponent(e: Entity, typeName: string): void {
         this.commands.push(() => {
-            if (e.index >= this.generations.length || this.generations[e.index] !== e.generation) return;
+            if (!this.isAlive(e.index, e.generation)) return;
             this.storages.get(typeName)?.remove(e.index);
         });
     }
 
+    /** Execute all deferred commands – now O(n) single pass, no shift(). */
     executeCommands(): void {
-        while (this.commands.length > 0) this.commands.shift()!();
+        for (let i = 0; i < this.commands.length; i++) {
+            this.commands[i]();
+        }
+        this.commands.length = 0;
     }
 
-    // --- Query helpers (mirroring ForEach + Query) ---
-    forEach<T extends IComponent>(typeName: string, action: (entity: Entity, comp: T) => void): void {
+    // ---------- ZERO‑ALLOCATION ITERATION (HOT PATH) ----------
+
+    /** Iterate over all entities with a single component. Zero allocation. */
+    forEachIndex<T extends IComponent>(typeName: string, callback: (entityIndex: number, comp: T) => void): void {
         const storage = this.storages.get(typeName) as SparseSetStorage<T>;
         if (!storage) return;
-        const entities = storage.getEntityIndices();
-        const comps = storage.getDenseArray();
-        const count = storage.getCount();
-        for (let i = 0; i < count; i++) {
-            const idx = entities[i];
-            action(new Entity(idx, this.generations[idx]), comps[i]);
-        }
+        storage.forEachIndex(callback);
     }
 
-    query<T extends IComponent>(typeName: string): [Entity, T][] {
-        const result: [Entity, T][] = [];
-        this.forEach(typeName, (e, c) => result.push([e, c]));
-        return result;
-    }
-
-    // --- Multi-component queries (using smallest set, same as C#) ---
-    forEach2<T1 extends IComponent, T2 extends IComponent>(
-        type1: string, type2: string, action: (e: Entity, c1: T1, c2: T2) => void
+    /**
+     * Iterate over entities with two components, smallest‑set first.
+     * Zero allocation. Does NOT check generation (entities are valid until end‑of‑tick flush).
+     */
+    forEachIndex2<T1 extends IComponent, T2 extends IComponent>(
+        type1: string,
+        type2: string,
+        callback: (entityIndex: number, comp1: T1, comp2: T2) => void
     ): void {
         const s1 = this.storages.get(type1) as SparseSetStorage<T1>;
         const s2 = this.storages.get(type2) as SparseSetStorage<T2>;
@@ -290,14 +334,69 @@ export class World {
         const other = smallest === s1 ? s2 : s1;
         const entities = smallest.getEntityIndices();
         const comps = smallest.getDenseArray();
-        for (let i = 0; i < smallest.getCount(); i++) {
+        const count = smallest.getCount();
+        for (let i = 0; i < count; i++) {
             const idx = entities[i];
             if (other.has(idx)) {
-                const e = new Entity(idx, this.generations[idx]);
-                if (smallest === s1) action(e, comps[i], other.get(idx) as T2);
-                else action(e, other.get(idx) as T1, comps[i]);
+                const comp1Val = (smallest === s1 ? comps[i] : other.get(idx)) as T1;
+                const comp2Val = (other === s2 ? other.get(idx) : comps[i]) as T2;
+                callback(idx, comp1Val, comp2Val);
             }
         }
+    }
+
+    /**
+     * Iterate over entities with three components, smallest‑set first.
+     * Zero allocation.
+     */
+    forEachIndex3<T1 extends IComponent, T2 extends IComponent, T3 extends IComponent>(
+        type1: string,
+        type2: string,
+        type3: string,
+        callback: (entityIndex: number, comp1: T1, comp2: T2, comp3: T3) => void
+    ): void {
+        const s1 = this.storages.get(type1) as SparseSetStorage<T1>;
+        const s2 = this.storages.get(type2) as SparseSetStorage<T2>;
+        const s3 = this.storages.get(type3) as SparseSetStorage<T3>;
+        if (!s1 || !s2 || !s3) return;
+        const sets = [s1, s2, s3].sort((a, b) => a.getCount() - b.getCount());
+        const smallest = sets[0];
+        const e1 = sets[1];
+        const e2 = sets[2];
+        const entities = smallest.getEntityIndices();
+        const count = smallest.getCount();
+        for (let i = 0; i < count; i++) {
+            const idx = entities[i];
+            if (e1.has(idx) && e2.has(idx)) {
+                const comp1 = s1.get(idx);
+                const comp2 = s2.get(idx);
+                const comp3 = s3.get(idx);
+                callback(idx, comp1, comp2, comp3);
+            }
+        }
+    }
+
+    // ---------- LEGACY METHODS (for non‑hot code) ----------
+    forEach<T extends IComponent>(typeName: string, action: (entity: Entity, comp: T) => void): void {
+        const storage = this.storages.get(typeName) as SparseSetStorage<T>;
+        if (!storage) return;
+        storage.forEachIndex((idx, comp) => {
+            action(new Entity(idx, this.generations[idx]), comp);
+        });
+    }
+
+    query<T extends IComponent>(typeName: string): [Entity, T][] {
+        const result: [Entity, T][] = [];
+        this.forEach(typeName, (e, c) => result.push([e, c]));
+        return result;
+    }
+
+    forEach2<T1 extends IComponent, T2 extends IComponent>(
+        type1: string, type2: string, action: (e: Entity, c1: T1, c2: T2) => void
+    ): void {
+        this.forEachIndex2(type1, type2, (idx, c1, c2) => {
+            action(new Entity(idx, this.generations[idx]), c1, c2);
+        });
     }
 
     query2<T1 extends IComponent, T2 extends IComponent>(type1: string, type2: string): [Entity, T1, T2][] {
@@ -310,23 +409,9 @@ export class World {
         type1: string, type2: string, type3: string,
         action: (e: Entity, c1: T1, c2: T2, c3: T3) => void
     ): void {
-        const s1 = this.storages.get(type1) as SparseSetStorage<T1>;
-        const s2 = this.storages.get(type2) as SparseSetStorage<T2>;
-        const s3 = this.storages.get(type3) as SparseSetStorage<T3>;
-        if (!s1 || !s2 || !s3) return;
-        const smallest = [s1, s2, s3].sort((a, b) => a.getCount() - b.getCount())[0];
-        const others = (smallest === s1 ? [s2, s3] : smallest === s2 ? [s1, s3] : [s1, s2]);
-        const entities = smallest.getEntityIndices();
-        const comps = smallest.getDenseArray();
-        for (let i = 0; i < smallest.getCount(); i++) {
-            const idx = entities[i];
-            if (others.every(s => s.has(idx))) {
-                const e = new Entity(idx, this.generations[idx]);
-                if (smallest === s1) action(e, comps[i], others[0].get(idx) as T2, others[1].get(idx) as T3);
-                else if (smallest === s2) action(e, others[0].get(idx) as T1, comps[i], others[1].get(idx) as T3);
-                else action(e, others[0].get(idx) as T1, others[1].get(idx) as T2, comps[i]);
-            }
-        }
+        this.forEachIndex3(type1, type2, type3, (idx, c1, c2, c3) => {
+            action(new Entity(idx, this.generations[idx]), c1, c2, c3);
+        });
     }
 
     query3<T1 extends IComponent, T2 extends IComponent, T3 extends IComponent>(
@@ -339,7 +424,7 @@ export class World {
 }
 
 // ------------------------------------------------------------------
-//  SYSTEM RUNNER  (replaces ECSSystemRunner.ts, reads ECS.csv)
+//  SYSTEM RUNNER (unchanged)
 // ------------------------------------------------------------------
 type SystemFunction = (world: World, delta?: number) => void;
 const systemRegistry = new Map<string, SystemFunction>();
@@ -368,10 +453,8 @@ export async function loadAndRunECSSystems(csvPath: string, world: World): Promi
             fn,
         });
     }
-    // Sort by Order
     enabledSystems.sort((a, b) => a.order - b.order);
 
-    // Execute (for Boot, we might call with delta 0; later, during Update, you'd pass the frame delta)
     for (const sys of enabledSystems) {
         try {
             sys.fn(world, 0);
@@ -379,13 +462,4 @@ export async function loadAndRunECSSystems(csvPath: string, world: World): Promi
             console.error(`[ECS] Error in system "${sys.name}":`, err);
         }
     }
-}
-
-// ------------------------------------------------------------------
-//  OPTIONAL: scheduler-compatible Load method
-// ------------------------------------------------------------------
-export function Load(): void {
-    // This is called from Scheduler Boot (you need a reference to a world)
-    // We'll assume you set a global or imported world reference.
-    // In practice, you'd do: loadAndRunECSSystems('ECS/ECS.csv', globalWorld);
 }

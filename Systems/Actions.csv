@@ -1,0 +1,2 @@
+action_id,operation,template,target_parent
+add_sheet_box,clone_entity,_sheet_box_template,sheet_editor_area

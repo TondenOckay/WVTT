@@ -1,9 +1,9 @@
 // Controls/Camera.ts
-import { parseCsvArray } from '../parseCsv.js';
 import { registerSystemMethod } from '../Core/Scheduler.js';
+import { BaseWorldData } from '../Core/BaseWorldData.js';
 import { getWorld } from '../Core/GlobalWorld.js';
 import { Input, IsActionHeld, IsActionPressed, ConsumeAction } from './Input.js';
-import { panelRegions, panelEntities } from '../Ui/Panel.js';
+import { panelEntities } from '../Ui/Panel.js';
 import { Entity, CameraComponent, PanelComponent } from '../Core/ECS.js';
 
 let orbitSpeed      = 0.15;
@@ -20,65 +20,57 @@ interface ViewDir { x: number; y: number; z: number; }
 const viewDirections: Record<string, ViewDir> = {};
 
 function Load() {
-  return fetch('Controls/Camera.csv')
-    .then(r => r.text())
-    .then(text => {
-      const rows = parseCsvArray(text);
-      if (rows.length < 1) return;
-      const row = rows[0];
+  const rows = BaseWorldData.camera;
+  if (rows.length < 1) return;
+  const row = rows[0];
 
-      const pos   = { x: parseFloat(row['PosX']??'0'), y: parseFloat(row['PosY']??'2'), z: parseFloat(row['PosZ']??'-5') };
-      const pivot = { x: parseFloat(row['PivotX']??'0'), y: parseFloat(row['PivotY']??'0'), z: parseFloat(row['PivotZ']??'0') };
-      const fov   = parseFloat(row['Fov']??'60');
-      const near  = parseFloat(row['Near']??'0.1');
-      const far   = parseFloat(row['Far']??'1000');
-      invertX     = row['InvertX']?.toLowerCase() === 'true';
-      invertY     = row['InvertY']?.toLowerCase() === 'true';
-      orbitSpeed  = parseFloat(row['orbit_speed']??'0.15');
-      panSpeed    = parseFloat(row['pan_speed']??'0.01');
-      zoomSpeed   = parseFloat(row['zoom_speed']??'0.5');
-      keyRotateSpeed  = parseFloat(row['key_rotate_speed']??'0.1');
-      mouseOrbitSens  = parseFloat(row['mouse_orbit_sensitivity']??'0.005');
-      mousePanSens    = parseFloat(row['mouse_pan_sensitivity']??'0.01');
+  const pos   = { x: parseFloat(row['PosX']??'0'), y: parseFloat(row['PosY']??'2'), z: parseFloat(row['PosZ']??'-5') };
+  const pivot = { x: parseFloat(row['PivotX']??'0'), y: parseFloat(row['PivotY']??'0'), z: parseFloat(row['PivotZ']??'0') };
+  const fov   = parseFloat(row['Fov']??'60');
+  const near  = parseFloat(row['Near']??'0.1');
+  const far   = parseFloat(row['Far']??'1000');
+  invertX     = row['InvertX']?.toLowerCase() === 'true';
+  invertY     = row['InvertY']?.toLowerCase() === 'true';
+  orbitSpeed  = parseFloat(row['orbit_speed']??'0.15');
+  panSpeed    = parseFloat(row['pan_speed']??'0.01');
+  zoomSpeed   = parseFloat(row['zoom_speed']??'0.5');
+  keyRotateSpeed  = parseFloat(row['key_rotate_speed']??'0.1');
+  mouseOrbitSens  = parseFloat(row['mouse_orbit_sensitivity']??'0.005');
+  mousePanSens    = parseFloat(row['mouse_pan_sensitivity']??'0.01');
 
-      viewDirections['front']  = { x: parseFloat(row['FrontX']??'0'), y: parseFloat(row['FrontY']??'0'), z: parseFloat(row['FrontZ']??'-1') };
-      viewDirections['back']   = { x: parseFloat(row['BackX']??'0'), y: parseFloat(row['BackY']??'0'), z: parseFloat(row['BackZ']??'1') };
-      viewDirections['left']   = { x: parseFloat(row['LeftX']??'-1'), y: parseFloat(row['LeftY']??'0'), z: parseFloat(row['LeftZ']??'0') };
-      viewDirections['right']  = { x: parseFloat(row['RightX']??'1'), y: parseFloat(row['RightY']??'0'), z: parseFloat(row['RightZ']??'0') };
-      viewDirections['top']    = { x: parseFloat(row['TopX']??'0'), y: parseFloat(row['TopY']??'1'), z: parseFloat(row['TopZ']??'0') };
-      viewDirections['bottom'] = { x: parseFloat(row['BottomX']??'0'), y: parseFloat(row['BottomY']??'-1'), z: parseFloat(row['BottomZ']??'0') };
+  viewDirections['front']  = { x: parseFloat(row['FrontX']??'0'), y: parseFloat(row['FrontY']??'0'), z: parseFloat(row['FrontZ']??'-1') };
+  viewDirections['back']   = { x: parseFloat(row['BackX']??'0'), y: parseFloat(row['BackY']??'0'), z: parseFloat(row['BackZ']??'1') };
+  viewDirections['left']   = { x: parseFloat(row['LeftX']??'-1'), y: parseFloat(row['LeftY']??'0'), z: parseFloat(row['LeftZ']??'0') };
+  viewDirections['right']  = { x: parseFloat(row['RightX']??'1'), y: parseFloat(row['RightY']??'0'), z: parseFloat(row['RightZ']??'0') };
+  viewDirections['top']    = { x: parseFloat(row['TopX']??'0'), y: parseFloat(row['TopY']??'1'), z: parseFloat(row['TopZ']??'0') };
+  viewDirections['bottom'] = { x: parseFloat(row['BottomX']??'0'), y: parseFloat(row['BottomY']??'-1'), z: parseFloat(row['BottomZ']??'0') };
 
-      const world = getWorld();
-
-      // destroy old cameras
-      const oldCameras: Entity[] = [];
-      world.forEach<CameraComponent>('CameraComponent', (e) => { oldCameras.push(e); });
-      for (const e of oldCameras) world.destroyEntity(e);
-
-      const camEntity = world.createEntity();
-      world.addComponent<CameraComponent>(camEntity, {
-        type: 'CameraComponent',
-        position: pos,
-        pivot,
-        fov, near, far,
-        invertX, invertY
-      });
-      world.executeCommands();
-      console.log('[Camera] Loaded and camera entity created');
-    });
+  const world = getWorld();
+  const old: Entity[] = [];
+  world.forEach<CameraComponent>('CameraComponent', e => old.push(e));
+  for (const e of old) world.destroyEntity(e);
+  const cam = world.createEntity();
+  world.addComponent<CameraComponent>(cam, {
+    type: 'CameraComponent',
+    position: pos,
+    pivot,
+    fov, near, far,
+    invertX, invertY
+  });
+  world.executeCommands();
+  console.log('[Camera] Loaded and camera entity created');
 }
 
 function isMouseOverUI(): boolean {
   const mouse = Input.MousePos;
-  for (const [name, region] of panelRegions) {
-    const entity = panelEntities.get(name);
-    if (!entity) continue;
+  for (const [name, entity] of panelEntities) {
     const panel = getWorld().getComponent<PanelComponent>(entity, 'PanelComponent');
     if (!panel || !panel.visible) continue;
-    if (mouse.x >= region.x && mouse.x <= region.x + region.width &&
-        mouse.y >= region.y && mouse.y <= region.y + region.height) {
-      return true;
-    }
+    const trans = getWorld().getComponent<TransformComponent>(entity as any, 'TransformComponent');
+    if (!trans) continue;
+    const x = trans.position.x - trans.scale.x*0.5;
+    const y = trans.position.y - trans.scale.y*0.5;
+    if (mouse.x >= x && mouse.x <= x + trans.scale.x && mouse.y >= y && mouse.y <= y + trans.scale.y) return true;
   }
   return false;
 }
@@ -102,19 +94,12 @@ function Update() {
   };
 
   // Keyboard view presets
-  if (IsActionPressed('view_front')) {
-    ConsumeAction('view_front'); dir = { ...viewDirections['front'] };
-  } else if (IsActionPressed('view_back')) {
-    ConsumeAction('view_back'); dir = { ...viewDirections['back'] };
-  } else if (IsActionPressed('view_right')) {
-    ConsumeAction('view_right'); dir = { ...viewDirections['right'] };
-  } else if (IsActionPressed('view_left')) {
-    ConsumeAction('view_left'); dir = { ...viewDirections['left'] };
-  } else if (IsActionPressed('view_top')) {
-    ConsumeAction('view_top'); dir = { ...viewDirections['top'] };
-  } else if (IsActionPressed('view_bottom')) {
-    ConsumeAction('view_bottom'); dir = { ...viewDirections['bottom'] };
-  }
+  if (IsActionPressed('view_front')) { ConsumeAction('view_front'); dir = { ...viewDirections['front'] }; }
+  else if (IsActionPressed('view_back')) { ConsumeAction('view_back'); dir = { ...viewDirections['back'] }; }
+  else if (IsActionPressed('view_right')) { ConsumeAction('view_right'); dir = { ...viewDirections['right'] }; }
+  else if (IsActionPressed('view_left')) { ConsumeAction('view_left'); dir = { ...viewDirections['left'] }; }
+  else if (IsActionPressed('view_top')) { ConsumeAction('view_top'); dir = { ...viewDirections['top'] }; }
+  else if (IsActionPressed('view_bottom')) { ConsumeAction('view_bottom'); dir = { ...viewDirections['bottom'] }; }
   if (IsActionPressed('view_front')||IsActionPressed('view_back')||IsActionPressed('view_right')||
       IsActionPressed('view_left')||IsActionPressed('view_top')||IsActionPressed('view_bottom')) {
     pos = { x: pivot.x + dir.x * dist, y: pivot.y + dir.y * dist, z: pivot.z + dir.z * dist };

@@ -1,0 +1,2 @@
+object_type,template_panel,default_x,default_y,default_w,default_h,layer,clickable,movement_rule,script_on_create,script_on_select,script_on_deselect,script_on_delete,save_format,description
+image,_image_template,0,0,0,0,9,true,drag_xy,,image_selected,image_deselected,,base64,Pasted image

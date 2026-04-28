@@ -1,40 +1,53 @@
 // Window.ts
 import * as PIXI from 'pixi.js';
-import { parseSettingsCsv } from './parseCsv.js';
 import { registerSystemMethod } from './Core/Scheduler.js';
+import { parseSettingsCsv } from './parseCsv.js';
 
 export const Window = {
   app: null as PIXI.Application | null,
 
-  async create(settings: Record<string, string | number | boolean>): Promise<PIXI.Application> {
+  create(settings: Record<string, string | number | boolean>): PIXI.Application {
     const rawBg = settings['BackgroundColor'];
-    if (rawBg === undefined) throw new Error('[Window] BackgroundColor not found');
-    const bgColor = typeof rawBg === 'string' ? Number(rawBg) : (rawBg as number);
+    const bgColor = rawBg
+      ? (typeof rawBg === 'string' ? Number(rawBg) : (rawBg as number))
+      : 0x1099bb;
+
+    const canvas = document.createElement('canvas');
+    canvas.id = 'engineCanvas';
+    canvas.width  = settings['Width'] as number;
+    canvas.height = settings['Height'] as number;
+    document.body.appendChild(canvas);
 
     this.app = new PIXI.Application();
-    await this.app.init({
-      width: settings['Width'] as number,
-      height: settings['Height'] as number,
+    this.app.init({
+      canvas,
+      width: canvas.width,
+      height: canvas.height,
       backgroundColor: bgColor,
       antialias: true,
       autoDensity: true,
       resizeTo: settings['Resizable'] ? window : undefined,
+    }).then(() => {
+      console.log('[Window] PixiJS renderer initialised');
     });
-    document.body.appendChild(this.app.canvas);
+
     document.title = (settings['Title'] as string) || 'SETUE Engine';
-    console.log('[Window] Created');
+    console.log('[Window] Canvas added to DOM with size', canvas.width, canvas.height);
     return this.app;
   }
 };
 
 async function Window_Load() {
+  // Load exactly one CSV – no fallback, no BaseWorldData
   const response = await fetch('Window.csv');
-  const csvText = await response.text();
-  const settings = parseSettingsCsv(csvText);
-  await Window.create(settings);
+  const text = await response.text();
+  const settings = parseSettingsCsv(text);
+  Window.create(settings);
 }
 
-function Window_ProcessEvents() {}
+function Window_ProcessEvents() {
+  // DOM events handled by Input.ts
+}
 
 registerSystemMethod('SETUE.Window', 'Load', Window_Load);
 registerSystemMethod('SETUE.Window', 'ProcessEvents', Window_ProcessEvents);

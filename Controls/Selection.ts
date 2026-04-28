@@ -1,9 +1,20 @@
-import { parseCsvArray } from '../parseCsv.js';
+// Controls/Selection.ts – dead‑import removed, core‑panels‑skip active
 import { registerSystemMethod } from '../Core/Scheduler.js';
 import { getWorld } from '../Core/GlobalWorld.js';
 import { Input, IsActionPressed, ConsumeAction } from './Input.js';
-import { panelRegions, panelEntities } from '../Ui/Panel.js';
-import { Entity, PanelComponent, MaterialComponent, DragComponent } from '../Core/ECS.js';
+import { panelEntities, panelSourceFile } from '../Ui/Panel.js';
+import { BaseWorldData } from '../Core/BaseWorldData.js';
+import {
+  Entity,
+  PanelComponent,
+  MaterialComponent,
+  TransformComponent,
+  DragComponent,
+  SelectableComponent,
+  ImageComponent,
+} from '../Core/ECS.js';
+import { runScript } from '../Systems/ScriptRunner.js';
+import * as PIXI from 'pixi.js';
 
 interface Rule {
   id: string;
@@ -19,117 +30,412 @@ let rules: Rule[] = [];
 let hoveredEntity: Entity | null = null;
 let hoverColor = { r: 0, g: 0, b: 0, a: 0 };
 let hoverStored = false;
-let selectedEntity: Entity | null = null;
-let selectedColor = { r: 0, g: 0, b: 0, a: 0 };
-let selectedStored = false;
+
+let selectedContentEntity: Entity | null = null;
+let selectedContentColor = { r: 0, g: 0, b: 0, a: 0 };
+let contentSelectedStored = false;
+
+let activeTabEntity: Entity | null = null;
+let activeTabColor = { r: 0, g: 0, b: 0, a: 0 };
+let activeTabStored = false;
+
 let openDropdownName: string | null = null;
 
 const HOVER_BRIGHTNESS = 1.3;
 const SELECTED_COLOR = { r: 0.3, g: 0.5, b: 0.8, a: 1.0 };
+const IMAGE_HOVER_ALPHA = 0.8;
+const IMAGE_SELECT_BORDER_COLOR = 0xffff00;
+const IMAGE_SELECT_BORDER_WIDTH = 2;
+
+const imageOriginalAlpha = new Map<number, number>();
+const selectionBorders = new Map<number, PIXI.Graphics>();
+
+const entityIndexToName = new Map<number, string>();
+
+function refreshEntityNameMap() {
+  entityIndexToName.clear();
+  for (const [name, entity] of panelEntities) {
+    entityIndexToName.set(entity.index, name);
+  }
+}
+
+function getPanelName(entity: Entity): string {
+  return entityIndexToName.get(entity.index) ?? '';
+}
 
 function Load() {
-  return fetch('Controls/Selection.csv')
-    .then(r => r.text())
-    .then(text => {
-      const rows = parseCsvArray(text);
-      rules = rows
-        .filter(r => r['input_action'])
-        .map(r => ({
-          id: r['id'] ?? '',
-          inputAction: r['input_action'] ?? '',
-          hitTestType: r['hit_test_type'] ?? '',
-          hitTestValue: r['hit_test_value'] ?? '',
-          onClickOperation: r['on_click_operation'] ?? '',
-          consumeInput: r['consume_input'] === 'true',
-          actionId: r['action_id'] ?? '',
-        }));
-      console.log(`[Selection] Loaded ${rules.length} rules`);
-    });
+  rules = BaseWorldData.selection
+    .filter(r => r['input_action'])
+    .map(r => ({
+      id: r['id'] ?? '',
+      inputAction: r['input_action'] ?? '',
+      hitTestType: r['hit_test_type'] ?? '',
+      hitTestValue: r['hit_test_value'] ?? '',
+      onClickOperation: r['on_click_operation'] ?? '',
+      consumeInput: r['consume_input'] === 'true',
+      actionId: r['action_id'] ?? '',
+    }));
+  console.log(`[Selection] Loaded ${rules.length} rules`);
+}
+
+// ---------- Image hover / selection ----------
+function applyImageHover(entity: Entity) {
+  const world = getWorld();
+  const img = world.getComponent<ImageComponent>(entity, 'ImageComponent');
+  if (!img?.sprite) return;
+  const sprite = img.sprite as PIXI.Sprite;
+  if (!imageOriginalAlpha.has(entity.index)) {
+    imageOriginalAlpha.set(entity.index, sprite.alpha);
+  }
+  sprite.alpha = IMAGE_HOVER_ALPHA;
+}
+
+function removeImageHover(entity: Entity) {
+  const world = getWorld();
+  const img = world.getComponent<ImageComponent>(entity, 'ImageComponent');
+  if (!img?.sprite) return;
+  const sprite = img.sprite as PIXI.Sprite;
+  const orig = imageOriginalAlpha.get(entity.index);
+  if (orig !== undefined) {
+    sprite.alpha = orig;
+    imageOriginalAlpha.delete(entity.index);
+  }
+}
+
+function addSelectionBorder(entity: Entity) {
+  const world = getWorld();
+  const img = world.getComponent<ImageComponent>(entity, 'ImageComponent');
+  if (!img?.sprite) return;
+  const sprite = img.sprite as PIXI.Sprite;
+
+  removeSelectionBorder(entity);
+
+  const border = new PIXI.Graphics();
+  border.stroke({ width: IMAGE_SELECT_BORDER_WIDTH, color: IMAGE_SELECT_BORDER_COLOR });
+  const bounds = sprite.getBounds();
+  border.rect(bounds.x, bounds.y, bounds.width, bounds.height);
+  border.stroke();
+  border.zIndex = 9999;
+  sprite.parent?.addChild(border);
+  selectionBorders.set(entity.index, border);
+}
+
+function removeSelectionBorder(entity: Entity) {
+  const border = selectionBorders.get(entity.index);
+  if (border) {
+    border.parent?.removeChild(border);
+    border.destroy();
+    selectionBorders.delete(entity.index);
+  }
+}
+
+function updateSelectionBorderPosition(entity: Entity) {
+  const world = getWorld();
+  const img = world.getComponent<ImageComponent>(entity, 'ImageComponent');
+  const border = selectionBorders.get(entity.index);
+  if (!img?.sprite || !border) return;
+  const sprite = img.sprite as PIXI.Sprite;
+  const bounds = sprite.getBounds();
+  border.clear();
+  border.stroke({ width: IMAGE_SELECT_BORDER_WIDTH, color: IMAGE_SELECT_BORDER_COLOR });
+  border.rect(bounds.x, bounds.y, bounds.width, bounds.height);
+  border.stroke();
+}
+
+// --- Active tab highlight ---
+function setActiveTab(entity: Entity) {
+  const world = getWorld();
+  if (activeTabEntity === entity) return;
+
+  if (activeTabEntity && activeTabStored) {
+    const mat = world.getComponent<MaterialComponent>(activeTabEntity, 'MaterialComponent');
+    if (mat) {
+      mat.color = { ...activeTabColor };
+      world.setComponent(activeTabEntity, mat);
+    }
+    activeTabStored = false;
+  }
+
+  const mat = world.getComponent<MaterialComponent>(entity, 'MaterialComponent');
+  if (mat) {
+    activeTabColor = { ...mat.color };
+    activeTabStored = true;
+    mat.color = SELECTED_COLOR;
+    world.setComponent(entity, mat);
+  }
+  activeTabEntity = entity;
+}
+
+// --- Content selection (images, etc.) ---
+export function setSelectedEntity(entity: Entity) {
+  const world = getWorld();
+  if (selectedContentEntity === entity) return;
+
+  if (selectedContentEntity && contentSelectedStored) {
+    const matPanel = world.getComponent<MaterialComponent>(selectedContentEntity, 'MaterialComponent');
+    if (matPanel) {
+      matPanel.color = { ...selectedContentColor };
+      world.setComponent(selectedContentEntity, matPanel);
+    }
+    if (world.hasComponent(selectedContentEntity, 'ImageComponent')) {
+      removeSelectionBorder(selectedContentEntity);
+    }
+    contentSelectedStored = false;
+  }
+
+  const matPanel = world.getComponent<MaterialComponent>(entity, 'MaterialComponent');
+  if (matPanel) {
+    selectedContentColor = { ...matPanel.color };
+    contentSelectedStored = true;
+    matPanel.color = SELECTED_COLOR;
+    world.setComponent(entity, matPanel);
+  }
+  if (world.hasComponent(entity, 'ImageComponent')) {
+    addSelectionBorder(entity);
+    contentSelectedStored = true;
+  }
+
+  selectedContentEntity = entity;
+}
+
+function clearContentSelection() {
+  if (selectedContentEntity) {
+    const world = getWorld();
+    if (contentSelectedStored) {
+      const matPanel = world.getComponent<MaterialComponent>(selectedContentEntity, 'MaterialComponent');
+      if (matPanel) {
+        matPanel.color = { ...selectedContentColor };
+        world.setComponent(selectedContentEntity, matPanel);
+      }
+      if (world.hasComponent(selectedContentEntity, 'ImageComponent')) {
+        removeSelectionBorder(selectedContentEntity);
+      }
+      contentSelectedStored = false;
+    }
+    selectedContentEntity = null;
+  }
+}
+
+/**
+ * Find the topmost entity at the mouse position.
+ * Prefers clickable entities over non‑clickable when layers are equal.
+ */
+function getTopmostEntityAtMouse(mouse: { x: number; y: number }): { entity: Entity; layer: number } | null {
+  const world = getWorld();
+  let topLayer = -Infinity;
+  let topEntity: Entity | null = null;
+  let topIsClickable = false;
+
+  // Panels
+  world.forEachIndex2<TransformComponent, PanelComponent>(
+    'TransformComponent',
+    'PanelComponent',
+    (idx, transform, panel) => {
+      if (!panel.visible) return;
+      const x = transform.position.x - transform.scale.x * 0.5;
+      const y = transform.position.y - transform.scale.y * 0.5;
+      const w = transform.scale.x;
+      const h = transform.scale.y;
+      if (mouse.x >= x && mouse.x <= x + w && mouse.y >= y && mouse.y <= y + h) {
+        const clickable = panel.clickable;
+        if (!topEntity || panel.layer > topLayer || (panel.layer === topLayer && clickable && !topIsClickable)) {
+          topLayer = panel.layer;
+          topEntity = new Entity(idx, world['generations'][idx]);
+          topIsClickable = clickable;
+        }
+      }
+    }
+  );
+
+  // Non‑panel selectables (images etc.)
+  world.forEachIndex2<SelectableComponent, TransformComponent>(
+    'SelectableComponent',
+    'TransformComponent',
+    (idx, selectable, transform) => {
+      if (world.hasComponent(new Entity(idx, 0), 'PanelComponent')) return;
+      if (!selectable.visible) return;
+      const x = transform.position.x - transform.scale.x * 0.5;
+      const y = transform.position.y - transform.scale.y * 0.5;
+      const w = transform.scale.x;
+      const h = transform.scale.y;
+      if (mouse.x >= x && mouse.x <= x + w && mouse.y >= y && mouse.y <= y + h) {
+        const clickable = selectable.clickable;
+        if (!topEntity || selectable.layer > topLayer || (selectable.layer === topLayer && clickable && !topIsClickable)) {
+          topLayer = selectable.layer;
+          topEntity = new Entity(idx, world['generations'][idx]);
+          topIsClickable = clickable;
+        }
+      }
+    }
+  );
+
+  return topEntity ? { entity: topEntity, layer: topLayer } : null;
 }
 
 function Update() {
   const world = getWorld();
+  refreshEntityNameMap();
   const mouse = Input.MousePos;
 
-  // --- Hover (unchanged) ---
-  // ...
+  // ---------- HOVER ----------
+  const candidates: { entity: Entity; layer: number }[] = [];
+  world.forEachIndex2<SelectableComponent, TransformComponent>(
+    'SelectableComponent',
+    'TransformComponent',
+    (idx, selectable, transform) => {
+      if (!selectable.visible || !selectable.clickable) return;
+      const name = getPanelName(new Entity(idx, 0));
+      if (name.startsWith('nav_')) return;
 
-  // --- Click ---
-  const pressedAction = IsActionPressed('select_object') ? 'select_object' : IsActionPressed('context_menu') ? 'context_menu' : null;
-  if (!pressedAction) return;
-
-  let bestLayer = -Infinity;
-  let bestName: string | null = null;
-  let bestRule: Rule | null = null;
-
-  for (const rule of rules) {
-    if (rule.inputAction !== pressedAction) continue;
-    const hitName = hitTest(rule, mouse);
-    if (!hitName) continue;
-    const entity = panelEntities.get(hitName);
-    if (!entity) continue;
-    const panel = world.getComponent<PanelComponent>(entity, 'PanelComponent');
-    if (!panel) continue;
-    if (panel.layer > bestLayer) {
-      bestLayer = panel.layer;
-      bestName = hitName;
-      bestRule = rule;
+      const x = transform.position.x - transform.scale.x * 0.5;
+      const y = transform.position.y - transform.scale.y * 0.5;
+      const w = transform.scale.x;
+      const h = transform.scale.y;
+      if (mouse.x >= x && mouse.x <= x + w && mouse.y >= y && mouse.y <= y + h) {
+        const top = getTopmostEntityAtMouse(mouse);
+        if (top && top.entity.index === idx) {
+          const entity = new Entity(idx, world['generations'][idx]);
+          candidates.push({ entity, layer: selectable.layer });
+        }
+      }
     }
+  );
+
+  candidates.sort((a, b) => b.layer - a.layer);
+  const newHovered = candidates.length > 0 ? candidates[0].entity : null;
+
+  if (newHovered !== hoveredEntity) {
+    if (hoveredEntity && hoverStored && hoveredEntity !== selectedContentEntity) {
+      const matPanel = world.getComponent<MaterialComponent>(hoveredEntity, 'MaterialComponent');
+      if (matPanel) {
+        matPanel.color = { ...hoverColor };
+        world.setComponent(hoveredEntity, matPanel);
+      }
+      if (world.hasComponent(hoveredEntity, 'ImageComponent')) {
+        removeImageHover(hoveredEntity!);
+      }
+      hoverStored = false;
+    }
+
+    if (newHovered && newHovered !== selectedContentEntity) {
+      const matPanel = world.getComponent<MaterialComponent>(newHovered, 'MaterialComponent');
+      if (matPanel) {
+        hoverColor = { ...matPanel.color };
+        hoverStored = true;
+        matPanel.color = {
+          r: Math.min(matPanel.color.r * HOVER_BRIGHTNESS, 1),
+          g: Math.min(matPanel.color.g * HOVER_BRIGHTNESS, 1),
+          b: Math.min(matPanel.color.b * HOVER_BRIGHTNESS, 1),
+          a: matPanel.color.a,
+        };
+        world.setComponent(newHovered, matPanel);
+      }
+      if (world.hasComponent(newHovered, 'ImageComponent')) {
+        applyImageHover(newHovered);
+        hoverStored = true;
+      }
+    }
+    hoveredEntity = newHovered;
   }
 
-  if (!bestName || !bestRule) {
+  if (selectedContentEntity && world.hasComponent(selectedContentEntity, 'ImageComponent')) {
+    updateSelectionBorderPosition(selectedContentEntity);
+  }
+
+  // ---------- CLICK ----------
+  const pressedAction = IsActionPressed('select_object') ? 'select_object'
+                      : IsActionPressed('context_menu') ? 'context_menu'
+                      : null;
+  if (!pressedAction) return;
+
+  const topResult = getTopmostEntityAtMouse(mouse);
+  if (!topResult) {
     closeOpenDropdown();
     return;
+  }
+
+  const topEntity = topResult.entity;
+  const topName = getPanelName(topEntity);
+  const selectableTop = world.getComponent<SelectableComponent>(topEntity, 'SelectableComponent');
+
+  if (!selectableTop || !selectableTop.clickable) {
+    if (topName === 'image_editor_area') {
+      clearContentSelection();
+    }
+    closeOpenDropdown();
+    return;
+  }
+
+  let bestRule: Rule | null = null;
+  for (const rule of rules) {
+    if (rule.inputAction !== pressedAction) continue;
+    if (rule.hitTestType === 'panel_prefix' && topName.startsWith(rule.hitTestValue)) {
+      bestRule = rule;
+      break;
+    } else if (rule.hitTestType && topName === rule.hitTestType) {
+      bestRule = rule;
+      break;
+    }
   }
 
   ConsumeAction(pressedAction);
 
-  const op = bestRule.onClickOperation.toLowerCase();
-  const actionId = bestRule.actionId;
+  if (bestRule) {
+    const op = bestRule.onClickOperation.toLowerCase();
+    const actionId = bestRule.actionId;
 
-  let targetPanelName: string | null = null;
-
-  if (op === 'toggle_visibility') {
-    targetPanelName = bestName;
-  } else if (op === '' && actionId) {
-    targetPanelName = actionId;           // e.g., "header_file_menu"
-  } else if (op === 'start_drag') {
-    import('./Movement.js').then(m => m.StartDrag(bestName!, mouse, actionId));
-    return;
-  } else if (op === 'select') {
-    const entity = panelEntities.get(bestName)!;
-    setSelectedEntity(entity);
-    closeOpenDropdown();
-    return;
+    if (op === 'run_script') {
+      if (actionId) runScript(actionId);
+      closeOpenDropdown();
+      return;
+    }
+    if (op === 'toggle_interface') {
+      toggleTabArea(actionId);
+      const navEntity = panelEntities.get(topName);
+      if (navEntity) setActiveTab(navEntity);
+      closeOpenDropdown();
+      return;
+    }
+    if (op === 'start_drag') {
+      import('./Movement.js').then(m => m.StartDrag(topName, mouse, actionId));
+      return;
+    }
+    if (op === 'toggle_visibility' || op === '' || actionId) {
+      const target = op === 'toggle_visibility' ? topName : (actionId || topName);
+      toggleDropdown(target!);
+    } else if (op === 'select') {
+      setSelectedEntity(topEntity);
+      closeOpenDropdown();
+    }
   } else {
-    targetPanelName = actionId || bestName;
-  }
-
-  if (targetPanelName) {
-    toggleDropdown(targetPanelName);
-  }
-}
-
-function hitTest(rule: Rule, mouse: { x: number; y: number }): string | null {
-  const candidates: { name: string; layer: number }[] = [];
-  for (const [name, region] of panelRegions) {
-    const entity = panelEntities.get(name);
-    if (!entity) continue;
-    const panel = getWorld().getComponent<PanelComponent>(entity, 'PanelComponent');
-    if (!panel || !panel.visible || !panel.clickable) continue;
-    if (mouse.x < region.x || mouse.x > region.x + region.width || mouse.y < region.y || mouse.y > region.y + region.height) continue;
-
-    if (rule.hitTestType === 'panel_prefix') {
-      if (name.startsWith(rule.hitTestValue)) candidates.push({ name, layer: panel.layer });
-    } else if (rule.hitTestType && name === rule.hitTestType) {
-      candidates.push({ name, layer: panel.layer });
+    const imgComp = world.getComponent<ImageComponent>(topEntity, 'ImageComponent');
+    const dragComp = world.getComponent<DragComponent>(topEntity, 'DragComponent');
+    if (imgComp && dragComp) {
+      setSelectedEntity(topEntity);
+      import('./Movement.js').then(m => m.StartDrag(topName, mouse, dragComp.movementId || 'drag_xy'));
     }
   }
-  candidates.sort((a, b) => b.layer - a.layer);
-  return candidates.length > 0 ? candidates[0].name : null;
 }
 
-/** Toggle panel visibility and also toggle all its children recursively */
+// --- Visibility utility (syncs Panel + Selectable + Image sprite) ---
+function setEntityVisible(entity: Entity, visible: boolean) {
+  const world = getWorld();
+  const panel = world.getComponent<PanelComponent>(entity, 'PanelComponent');
+  if (panel) {
+    panel.visible = visible;
+    world.setComponent(entity, panel);
+  }
+  const selectable = world.getComponent<SelectableComponent>(entity, 'SelectableComponent');
+  if (selectable) {
+    selectable.visible = visible;
+    world.setComponent(entity, selectable);
+  }
+  const imgComp = world.getComponent<ImageComponent>(entity, 'ImageComponent');
+  if (imgComp?.sprite) {
+    imgComp.sprite.visible = visible;
+  }
+}
+
 function toggleDropdown(panelName: string) {
   const world = getWorld();
   const entity = panelEntities.get(panelName);
@@ -137,37 +443,21 @@ function toggleDropdown(panelName: string) {
   const panel = world.getComponent<PanelComponent>(entity, 'PanelComponent');
   if (!panel) return;
 
-  // Close previous open dropdown (and its children)
-  if (openDropdownName && openDropdownName !== panelName) {
-    closeDropdown(openDropdownName);
-  }
+  if (openDropdownName && openDropdownName !== panelName) closeDropdown(openDropdownName);
 
-  // Toggle this panel
   const newVisible = !panel.visible;
-  panel.visible = newVisible;
-  world.setComponent(entity, panel);
-
-  // Toggle all children that have this panel as parent
-  setChildrenVisibility(panelName, newVisible);
-
+  setEntityVisible(entity, newVisible);
   openDropdownName = newVisible ? panelName : null;
+  setChildrenVisibility(panelName, newVisible);
 }
 
-/** Recursively set visibility of all child panels whose parent_name matches the given parent */
 function setChildrenVisibility(parentName: string, visible: boolean) {
   const world = getWorld();
   for (const [childName, childEntity] of panelEntities) {
     const dragComp = world.getComponent<DragComponent>(childEntity, 'DragComponent');
-    if (!dragComp) continue;
-    if (dragComp.parentNameId === parentName) {
-      const childPanel = world.getComponent<PanelComponent>(childEntity, 'PanelComponent');
-      if (childPanel) {
-        childPanel.visible = visible;
-        world.setComponent(childEntity, childPanel);
-        // Recursively handle grandchildren
-        setChildrenVisibility(childName, visible);
-      }
-    }
+    if (!dragComp || dragComp.parentNameId !== parentName) continue;
+    setEntityVisible(childEntity, visible);
+    setChildrenVisibility(childName, visible);
   }
 }
 
@@ -176,21 +466,38 @@ function closeDropdown(panelName: string) {
   if (!entity) return;
   const panel = getWorld().getComponent<PanelComponent>(entity, 'PanelComponent');
   if (panel && panel.visible) {
-    panel.visible = false;
-    getWorld().setComponent(entity, panel);
-    setChildrenVisibility(panelName, false);   // hide children too
+    setEntityVisible(entity, false);
+    setChildrenVisibility(panelName, false);
   }
 }
 
 function closeOpenDropdown() {
-  if (openDropdownName) {
-    closeDropdown(openDropdownName);
-    openDropdownName = null;
-  }
+  if (openDropdownName) { closeDropdown(openDropdownName); openDropdownName = null; }
 }
 
-function setSelectedEntity(entity: Entity) {
-  // unchanged
+// ---------- TAB SWITCHING (core panels untouched, dead overlay removed) ----------
+function toggleTabArea(areaName: string) {
+  const world = getWorld();
+  const areaFile = panelSourceFile.get(areaName);
+  if (!areaFile) return;
+
+  for (const [pname, entity] of panelEntities) {
+    const panel = world.getComponent<PanelComponent>(entity, 'PanelComponent');
+    if (!panel) continue;
+
+    const file = panelSourceFile.get(pname) ?? 'PanelCore.csv';
+
+    // Core panels are never toggled – they keep their original visibility
+    if (file === 'PanelCore.csv') continue;
+
+    const shouldBeVisible = (file === areaFile);
+    setEntityVisible(entity, shouldBeVisible);
+  }
+
+  // Only keep the system editor overlay (ImageEditorContent was deleted)
+  import('../Systems/SystemEditor.js').then(m =>
+    m.toggleSystemEditor(areaName === 'system_editor_area')
+  );
 }
 
 registerSystemMethod('SETUE.Controls.Selection', 'Load', Load);

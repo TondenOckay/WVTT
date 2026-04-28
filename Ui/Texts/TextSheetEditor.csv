@@ -1,0 +1,4 @@
+id,panel_id,text,font_id,color_id,align,valign,layer,rotation,source,prefix,pad_left,pad_top,line_height
+sheet_editor_save_text,sheet_editor_save_btn,Save Layout,default,White,center,middle,12,0,,,4,0,16
+sheet_editor_load_text,sheet_editor_load_btn,Load Layout,default,White,center,middle,12,0,,,4,0,16
+sheet_editor_export_text,sheet_editor_export_btn,Export Sheet,default,White,center,middle,12,0,,,4,0,16
