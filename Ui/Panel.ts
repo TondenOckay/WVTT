@@ -1,14 +1,154 @@
-// Ui/Panel.ts
+// Ui/Panel.ts – boot‑time static data, spatial index, area maps, layer buckets
 import { registerSystemMethod } from '../Core/Scheduler.js';
 import { getWorld } from '../Core/GlobalWorld.js';
 import { getColor } from './Color.js';
 import { parseCsvArray } from '../parseCsv.js';
-import { TransformComponent, PanelComponent, MaterialComponent, DragComponent, SelectableComponent, Entity } from '../Core/ECS.js';
+import {
+  TransformComponent,
+  PanelComponent,
+  MaterialComponent,
+  DragComponent,
+  SelectableComponent,
+  NavButtonComponent,
+  Entity,
+} from '../Core/ECS.js';
 
+// ---------- Legacy exports ----------
 export const panelRegions = new Map<string, { x: number; y: number; width: number; height: number }>();
 export const panelEntities = new Map<string, Entity>();
 export const panelSourceFile = new Map<string, string>();
+export const originalVisible = new Map<string, boolean>();
+export let selectedPanelName: string | null = null;
 
+// ---------- New static data exports ----------
+export const PanelNameToIndex = new Map<string, number>();
+
+export interface PanelStyle {
+  baseColor: { r: number; g: number; b: number; a: number };
+  hoverColor: { r: number; g: number; b: number; a: number } | null;
+  selectedColor: { r: number; g: number; b: number; a: number } | null;
+}
+export let styleArray: PanelStyle[] = [];
+export let layerBuckets: Map<number, number[]> = new Map();
+export let areaToPanels: Map<string, number[]> = new Map();
+
+// ---------- File‑name → area‑name mapping (must match Input.csv) ----------
+const FILE_AREA_MAP: Record<string, string> = {
+  'PanelSheets.csv':        'sheet_area',
+  'PanelSpellbook.csv':     'spellbook_area',
+  'PanelBoard.csv':         'board_area',
+  'PanelSheetEditor.csv':   'sheet_editor_area',
+  'PanelMapEditor.csv':     'map_editor_area',
+  'PanelImageEditor.csv':   'image_editor_area',
+  'PanelSystemEditor.csv':  'system_editor_area',
+};
+
+// ---------- Quadtree for hit‑testing (FIXED) ----------
+class QuadTree {
+  private bounds: { x: number; y: number; w: number; h: number };
+  private nodes: QuadTree[] = [];
+  private items: { rect: { x: number; y: number; w: number; h: number }; entityId: number }[] = [];
+  private maxItems = 4;
+  private maxDepth = 6;
+  private depth: number;
+
+  constructor(x: number, y: number, w: number, h: number, depth = 0) {
+    this.bounds = { x, y, w, h };
+    this.depth = depth;
+  }
+
+  insert(rect: { x: number; y: number; w: number; h: number }, entityId: number) {
+    if (rect.w <= 0 || rect.h <= 0) return false;
+    if (!this.intersects(this.bounds, rect)) return false;
+
+    if (this.depth >= this.maxDepth) {
+      this.items.push({ rect, entityId });
+      return true;
+    }
+
+    if (this.nodes.length === 0 && this.items.length < this.maxItems) {
+      this.items.push({ rect, entityId });
+      return true;
+    }
+
+    if (this.nodes.length === 0) this.subdivide();
+
+    for (const node of this.nodes) {
+      node.insert(rect, entityId);
+    }
+    return true;
+  }
+
+  query(pointX: number, pointY: number, out: number[]): void {
+    if (!this.containsPoint(this.bounds, pointX, pointY)) return;
+    for (const item of this.items) {
+      if (this.containsPoint(item.rect, pointX, pointY)) out.push(item.entityId);
+    }
+    for (const node of this.nodes) node.query(pointX, pointY, out);
+  }
+
+  private subdivide() {
+    const { x, y, w, h } = this.bounds;
+    const hw = w / 2, hh = h / 2;
+    this.nodes.push(new QuadTree(x, y, hw, hh, this.depth + 1));
+    this.nodes.push(new QuadTree(x + hw, y, hw, hh, this.depth + 1));
+    this.nodes.push(new QuadTree(x, y + hh, hw, hh, this.depth + 1));
+    this.nodes.push(new QuadTree(x + hw, y + hh, hw, hh, this.depth + 1));
+    const oldItems = this.items;
+    this.items = [];
+    for (const item of oldItems) this.insert(item.rect, item.entityId);
+  }
+
+  private intersects(a: any, b: any) {
+    return !(b.x > a.x + a.w || b.x + b.w < a.x || b.y > a.y + a.h || b.y + b.h < a.y);
+  }
+  private containsPoint(a: any, px: number, py: number) {
+    return px >= a.x && px <= a.x + a.w && py >= a.y && py <= a.y + a.h;
+  }
+}
+
+let spatialTree: QuadTree | null = null;
+
+// ---------- Public hit‑test (returns string for backward compatibility) ----------
+export function hitTestPanel(mouseX: number, mouseY: number): string | null {
+  if (!spatialTree) return null;
+  const world = getWorld();
+  const candidates: number[] = [];
+  spatialTree.query(mouseX, mouseY, candidates);
+  let topLayer = -Infinity;
+  let topName: string | null = null;
+  for (const id of candidates) {
+    if (!world.hasComponentByIndex(id, 'Visible') || world.hasComponentByIndex(id, 'Culled')) continue;
+    const panel = world.getComponentByIndex<PanelComponent>(id, 'PanelComponent');
+    if (!panel) continue;
+    if (panel.layer > topLayer) {
+      topLayer = panel.layer;
+      for (const [name, entity] of panelEntities) {
+        if (entity.index === id) {
+          topName = name;
+          break;
+        }
+      }
+    }
+  }
+  return topName;
+}
+
+// ---------- Clear all static data ----------
+export function clearPanelData() {
+  panelRegions.clear();
+  panelEntities.clear();
+  panelSourceFile.clear();
+  originalVisible.clear();
+  selectedPanelName = null;
+  PanelNameToIndex.clear();
+  styleArray = [];
+  layerBuckets = new Map();
+  areaToPanels = new Map();
+  spatialTree = null;
+}
+
+// ---------- Load ----------
 async function Load() {
   const world = getWorld();
 
@@ -26,7 +166,16 @@ async function Load() {
   const responses = await Promise.all(panelFiles.map(f => fetch(f)));
   const texts = await Promise.all(responses.map(r => r.text()));
 
-  let grandTotal = 0;
+  const styleMap = new Map<string, number>();
+  styleArray = [];
+  layerBuckets = new Map();
+  areaToPanels = new Map();
+  panelRegions.clear();
+  PanelNameToIndex.clear();
+  panelEntities.clear();
+  panelSourceFile.clear();
+  originalVisible.clear();
+  spatialTree = new QuadTree(0, 0, 1920, 1080);
 
   for (let i = 0; i < panelFiles.length; i++) {
     const filePath = panelFiles[i];
@@ -38,9 +187,6 @@ async function Load() {
       const objName = row['object_name'];
       if (!objName || objName.startsWith('#')) continue;
 
-      grandTotal++;
-      panelSourceFile.set(objName, fileName);
-
       const left   = parseFloat(row['left'] ?? '0');
       const right  = parseFloat(row['right'] ?? '0');
       const top    = parseFloat(row['top'] ?? '0');
@@ -48,12 +194,35 @@ async function Load() {
       const width  = right - left;
       const height = bottom - top;
 
+      if (width <= 0 || height <= 0) continue;
+
       panelRegions.set(objName, { x: left, y: top, width, height });
+
+      const colorId = row['color_id'] ?? 'White';
+      const hoverColorId = row['hover_color_id']?.trim();
+      const selColorId = row['selected_color_id']?.trim();
+      const styleKey = `${colorId}|${hoverColorId}|${selColorId}`;
+      if (!styleMap.has(styleKey)) {
+        const base = getColor(colorId);
+        const hover = hoverColorId ? getColor(hoverColorId) : null;
+        const sel = selColorId ? getColor(selColorId) : null;
+        styleArray.push({
+          baseColor: { r: base.r, g: base.g, b: base.b, a: base.alpha },
+          hoverColor: hover ? { r: hover.r, g: hover.g, b: hover.b, a: hover.alpha } : null,
+          selectedColor: sel ? { r: sel.r, g: sel.g, b: sel.b, a: sel.alpha } : null,
+        });
+        styleMap.set(styleKey, styleArray.length - 1);
+      }
+      const styleId = styleMap.get(styleKey)!;
 
       const entity = world.createEntity();
       panelEntities.set(objName, entity);
+      PanelNameToIndex.set(objName, entity.index);
+      panelSourceFile.set(objName, fileName);
 
-      // --- Transform ---
+      const visible = row['visible']?.toLowerCase() !== 'false';
+      originalVisible.set(objName, visible);
+
       world.addComponent<TransformComponent>(entity, {
         type: 'TransformComponent',
         position: { x: left + width / 2, y: top + height / 2, z: 0 },
@@ -61,41 +230,62 @@ async function Load() {
         rotation: { x: 0, y: 0, z: 0, w: 1 },
       });
 
-      // --- Panel (visual) ---
-      const visible = row['visible']?.toLowerCase() !== 'false';
       const layer = parseInt(row['layer'] ?? '0');
       const clickable = row['clickable']?.toLowerCase() === 'true';
 
       world.addComponent<PanelComponent>(entity, {
         type: 'PanelComponent',
-        id: 0,
+        styleId,
         textId: 0,
-        visible,
         layer,
         alpha: parseFloat(row['alpha'] ?? '1'),
         clickable,
         clipChildren: row['clip_children']?.toLowerCase() === 'true',
       });
 
-      // --- Selectable (interaction) ---
-      world.addComponent<SelectableComponent>(entity, {
-        type: 'SelectableComponent',
-        visible,
-        layer,
-        clickable,
-      });
-
-      // --- Material (colour) ---
-      const color = getColor(row['color_id']);
+      const baseCol = styleArray[styleId].baseColor;
       world.addComponent<MaterialComponent>(entity, {
         type: 'MaterialComponent',
-        color: { r: color.r, g: color.g, b: color.b, a: color.alpha },
+        color: { r: baseCol.r, g: baseCol.g, b: baseCol.b, a: baseCol.a },
         pipelineId: 0,
       });
 
-      // --- Drag (movement) ---
+      if (visible) world.addTag(entity, 'Visible');
+
+      // NavButton component
       const parentName = row['parent_name'] ?? '';
-      const moveEdge   = row['move_edge'] ?? '';
+      if (parentName === 'nav_bar' && objName.startsWith('nav_')) {
+        const areaMap: Record<string, string> = {
+          nav_sheets:        'sheet_area',
+          nav_spellbook:     'spellbook_area',
+          nav_board:         'board_area',
+          nav_sheet_editor:  'sheet_editor_area',
+          nav_map_editor:    'map_editor_area',
+          nav_image_editor:  'image_editor_area',
+          nav_system_editor: 'system_editor_area',
+        };
+        const area = areaMap[objName];
+        if (area) {
+          world.addComponent<NavButtonComponent>(entity, { type: 'NavButton', area });
+        }
+      }
+
+      // ---- Area mapping (uses explicit map to match Input.csv) ----
+      if (fileName !== 'PanelCore.csv') {
+        const area = FILE_AREA_MAP[fileName] ?? null;
+        if (area) {
+          if (!areaToPanels.has(area)) areaToPanels.set(area, []);
+          areaToPanels.get(area)!.push(entity.index);
+        }
+      }
+
+      spatialTree!.insert({ x: left, y: top, w: width, h: height }, entity.index);
+
+      if (!layerBuckets.has(layer)) layerBuckets.set(layer, []);
+      layerBuckets.get(layer)!.push(entity.index);
+
+      // Drag component
+      const moveEdge = row['move_edge'] ?? '';
       const callScript = row['call_script'] ?? '';
       const minX = parseFloat(row['min_x'] ?? 'NaN');
       const maxX = parseFloat(row['max_x'] ?? 'NaN');
@@ -104,23 +294,26 @@ async function Load() {
           type: 'DragComponent',
           parentNameId: parentName,
           movementId: callScript,
-          moveEdge: moveEdge,
+          moveEdge,
           minX: isNaN(minX) ? NaN : minX,
           maxX: isNaN(maxX) ? NaN : maxX,
         });
       }
+
+      world.addComponent<SelectableComponent>(entity, {
+        type: 'SelectableComponent',
+        visible,
+        layer,
+        clickable,
+      });
     }
   }
 
   world.executeCommands();
-  console.log(`[Panels] Grand total: ${grandTotal} entities, source map size ${panelSourceFile.size}`);
-  console.log(`[Panels] 'sheet_area' in source map? ${panelSourceFile.has('sheet_area')}`);
-}
+  console.log(`[Panels] Boot complete. Styles: ${styleArray.length}, Layers: ${[...layerBuckets.keys()].sort()}`);
+  console.log(`[Panels] Area map keys: ${[...areaToPanels.keys()].join(', ')}`);
 
-export function clearPanelData() {
-  panelRegions.clear();
-  panelEntities.clear();
-  panelSourceFile.clear();
+  (window as any).__PanelNameToIndex = PanelNameToIndex;
 }
 
 registerSystemMethod('SETUE.Systems.Panels', 'Load', Load);

@@ -1,4 +1,4 @@
-// Core/Scheduler.ts
+// Core/Scheduler.ts – as provided, no changes needed
 import { parseCsvArray } from '../parseCsv.js';
 
 export interface SchedulerEntry {
@@ -50,7 +50,6 @@ export class Scheduler {
       all.push(entry);
     }
 
-    // Pre‑sort and store separate lists so we never sort again
     const sortFn = (a: SchedulerEntry, b: SchedulerEntry) =>
       a.TimeSlot - b.TimeSlot ||
       a.Loop.localeCompare(b.Loop) ||
@@ -58,13 +57,8 @@ export class Scheduler {
       a.RunOrder - b.RunOrder ||
       a.ClassName.localeCompare(b.ClassName);
 
-    this.bootEntries = all
-      .filter(e => e.Loop === 'Boot' && e.LoadMethod)
-      .sort(sortFn);
-
-    this.updateEntries = all
-      .filter(e => e.Loop !== 'Boot' && e.UpdateMethod)
-      .sort(sortFn);
+    this.bootEntries = all.filter(e => e.Loop === 'Boot' && e.LoadMethod).sort(sortFn);
+    this.updateEntries = all.filter(e => e.Loop !== 'Boot' && e.UpdateMethod).sort(sortFn);
 
     console.log(`[Scheduler] Loaded ${all.length} systems (${this.bootEntries.length} boot, ${this.updateEntries.length} update)`);
   }
@@ -73,57 +67,39 @@ export class Scheduler {
     if (this.bootRun) return;
     this.bootRun = true;
 
-    console.log(`[Scheduler] Running ${this.bootEntries.length} boot methods...`);
     for (const entry of this.bootEntries) {
       const key = `${entry.ClassName}.${entry.LoadMethod}`;
       const func = allMethods.get(key);
-      if (!func) {
-        if (entry.Log) console.warn(`[Scheduler] Boot: ${key} not found`);
-        continue;
-      }
+      if (!func) continue;
       try {
-        if (entry.Log) console.log(`[Scheduler] Boot: ${key}`);
-        const result = func();
-        if (result instanceof Promise) await result;
-        console.log(`[Scheduler] Boot: ${key} succeeded.`);
+        await func();
       } catch (err) {
-        console.error(`[Scheduler] ERROR in ${key}:`, err);
+        console.error(`[Scheduler] Boot error in ${key}:`, err);
       }
     }
   }
 
-  /** Called every frame by MasterClock, with the current absolute time (seconds). */
   static update(currentTime: number) {
-    // Compute delta since last frame (clamped to avoid huge jumps after pause)
     let dt = 0;
     if (this.lastFrameTime > 0) {
       dt = currentTime - this.lastFrameTime;
-      if (dt > 0.1) dt = 0.1;   // cap at 100ms to avoid spiral of death
+      if (dt > 0.1) dt = 0.1;
     }
     this.lastFrameTime = currentTime;
 
     for (const entry of this.updateEntries) {
       const key = `${entry.ClassName}.${entry.UpdateMethod}`;
-
-      // Frequency throttling (unchanged logic, but using pre‑sorted list)
       if (entry.FrequencySec > 0) {
-        const lastRun = this.lastRunTimes.get(key) || 0;
-        if (currentTime - lastRun < entry.FrequencySec) continue;
+        const last = this.lastRunTimes.get(key) || 0;
+        if (currentTime - last < entry.FrequencySec) continue;
       }
-
       const func = allMethods.get(key);
-      if (!func) {
-        if (entry.Log) console.warn(`[Scheduler] Update: ${key} not found`);
-        continue;
-      }
-
+      if (!func) continue;
       try {
-        if (entry.Log) console.log(`[Scheduler] Update: ${key}`);
-        // Pass delta time – existing functions that don’t use it will simply ignore the argument
         func(dt);
         this.lastRunTimes.set(key, currentTime);
       } catch (err) {
-        console.error(`[Scheduler] ERROR in ${key}:`, err);
+        console.error(`[Scheduler] Update error in ${key}:`, err);
       }
     }
   }

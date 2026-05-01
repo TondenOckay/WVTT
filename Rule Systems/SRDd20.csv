@@ -1,0 +1,178 @@
+field_name,operand_1,op_1,operand_2,op_2,operand_3
+Strength,,,,,
+Dexterity,,,,,
+Constitution,,,,,
+Intelligence,,,,,
+Wisdom,,,,,
+Charisma,,,,,
+Strength Modifier,Strength,-,10,/,2
+Strength Modifier,floor,,,,
+Dexterity Modifier,Dexterity,-,10,/,2
+Dexterity Modifier,floor,,,,
+Constitution Modifier,Constitution,-,10,/,2
+Constitution Modifier,floor,,,,
+Intelligence Modifier,Intelligence,-,10,/,2
+Intelligence Modifier,floor,,,,
+Wisdom Modifier,Wisdom,-,10,/,2
+Wisdom Modifier,floor,,,,
+Charisma Modifier,Charisma,-,10,/,2
+Charisma Modifier,floor,,,,
+Level,,,,,
+Hit Dice,,,,,
+Armor Bonus,,,,,
+Shield Bonus,,,,,
+Size Modifier,,,,,
+Natural Armor,,,,,
+Deflection Modifier,,,,,
+Misc AC Modifier,,,,,
+Armor Class (Total),10,+,Armor Bonus,+,Shield Bonus
+Armor Class (Total),Dexterity Modifier,+,Size Modifier,+,Natural Armor
+Armor Class (Total),Deflection Modifier,+,Misc AC Modifier,,
+Flat‑Footed AC,10,+,Armor Bonus,+,Shield Bonus
+Flat‑Footed AC,Size Modifier,+,Natural Armor,+,Deflection Modifier
+Flat‑Footed AC,Misc AC Modifier,,,,
+Touch AC,10,+,Dexterity Modifier,+,Size Modifier
+Touch AC,Deflection Modifier,+,Misc AC Modifier,,
+Hit Points,Constitution Modifier,*,Level,+,Hit Dice
+Initiative Total,Dexterity Modifier,+,Initiative Misc Mod,,
+Fortitude Base Save,,,,,
+Fortitude Magic Mod,,,,,
+Fortitude Misc Mod,,,,,
+Fortitude Save Total,Fortitude Base Save,+,Constitution Modifier,+,Fortitude Magic Mod
+Fortitude Save Total,Fortitude Misc Mod,,,,,
+Reflex Base Save,,,,,
+Reflex Magic Mod,,,,,
+Reflex Misc Mod,,,,,
+Reflex Save Total,Reflex Base Save,+,Dexterity Modifier,+,Reflex Magic Mod
+Reflex Save Total,Reflex Misc Mod,,,,,
+Will Base Save,,,,,
+Will Magic Mod,,,,,
+Will Misc Mod,,,,,
+Will Save Total,Will Base Save,+,Wisdom Modifier,+,Will Magic Mod
+Will Save Total,Will Misc Mod,,,,,
+Climb Ranks,,,,,
+Climb Misc Mod,,,,,
+Climb (Str),Climb Ranks,+,Strength Modifier,+,Climb Misc Mod
+Jump Ranks,,,,,
+Jump Misc Mod,,,,,
+Jump (Str),Jump Ranks,+,Strength Modifier,+,Jump Misc Mod
+Swim Ranks,,,,,
+Swim Misc Mod,,,,,
+Swim (Str),Swim Ranks,+,Strength Modifier,+,Swim Misc Mod
+Balance Ranks,,,,,
+Balance Misc Mod,,,,,
+Balance (Dex),Balance Ranks,+,Dexterity Modifier,+,Balance Misc Mod
+Escape Artist Ranks,,,,,
+Escape Artist Misc Mod,,,,,
+Escape Artist (Dex),Escape Artist Ranks,+,Dexterity Modifier,+,Escape Artist Misc Mod
+Hide Ranks,,,,,
+Hide Misc Mod,,,,,
+Hide (Dex),Hide Ranks,+,Dexterity Modifier,+,Hide Misc Mod
+Move Silently Ranks,,,,,
+Move Silently Misc Mod,,,,,
+Move Silently (Dex),Move Silently Ranks,+,Dexterity Modifier,+,Move Silently Misc Mod
+Open Lock Ranks,,,,,
+Open Lock Misc Mod,,,,,
+Open Lock (Dex),Open Lock Ranks,+,Dexterity Modifier,+,Open Lock Misc Mod
+Ride Ranks,,,,,
+Ride Misc Mod,,,,,
+Ride (Dex),Ride Ranks,+,Dexterity Modifier,+,Ride Misc Mod
+Sleight of Hand Ranks,,,,,
+Sleight of Hand Misc Mod,,,,,
+Sleight of Hand (Dex),Sleight of Hand Ranks,+,Dexterity Modifier,+,Sleight of Hand Misc Mod
+Tumble Ranks,,,,,
+Tumble Misc Mod,,,,,
+Tumble (Dex),Tumble Ranks,+,Dexterity Modifier,+,Tumble Misc Mod
+Use Rope Ranks,,,,,
+Use Rope Misc Mod,,,,,
+Use Rope (Dex),Use Rope Ranks,+,Dexterity Modifier,+,Use Rope Misc Mod
+Concentration Ranks,,,,,
+Concentration Misc Mod,,,,,
+Concentration (Con),Concentration Ranks,+,Constitution Modifier,+,Concentration Misc Mod
+Appraise Ranks,,,,,
+Appraise Misc Mod,,,,,
+Appraise (Int),Appraise Ranks,+,Intelligence Modifier,+,Appraise Misc Mod
+Craft Ranks,,,,,
+Craft Misc Mod,,,,,
+Craft (Int),Craft Ranks,+,Intelligence Modifier,+,Craft Misc Mod
+Decipher Script Ranks,,,,,
+Decipher Script Misc Mod,,,,,
+Decipher Script (Int),Decipher Script Ranks,+,Intelligence Modifier,+,Decipher Script Misc Mod
+Disable Device Ranks,,,,,
+Disable Device Misc Mod,,,,,
+Disable Device (Int),Disable Device Ranks,+,Intelligence Modifier,+,Disable Device Misc Mod
+Forgery Ranks,,,,,
+Forgery Misc Mod,,,,,
+Forgery (Int),Forgery Ranks,+,Intelligence Modifier,+,Forgery Misc Mod
+Knowledge Ranks,,,,,
+Knowledge Misc Mod,,,,,
+Knowledge (Int),Knowledge Ranks,+,Intelligence Modifier,+,Knowledge Misc Mod
+Search Ranks,,,,,
+Search Misc Mod,,,,,
+Search (Int),Search Ranks,+,Intelligence Modifier,+,Search Misc Mod
+Spellcraft Ranks,,,,,
+Spellcraft Misc Mod,,,,,
+Spellcraft (Int),Spellcraft Ranks,+,Intelligence Modifier,+,Spellcraft Misc Mod
+Heal Ranks,,,,,
+Heal Misc Mod,,,,,
+Heal (Wis),Heal Ranks,+,Wisdom Modifier,+,Heal Misc Mod
+Listen Ranks,,,,,
+Listen Misc Mod,,,,,
+Listen (Wis),Listen Ranks,+,Wisdom Modifier,+,Listen Misc Mod
+Profession Ranks,,,,,
+Profession Misc Mod,,,,,
+Profession (Wis),Profession Ranks,+,Wisdom Modifier,+,Profession Misc Mod
+Sense Motive Ranks,,,,,
+Sense Motive Misc Mod,,,,,
+Sense Motive (Wis),Sense Motive Ranks,+,Wisdom Modifier,+,Sense Motive Misc Mod
+Spot Ranks,,,,,
+Spot Misc Mod,,,,,
+Spot (Wis),Spot Ranks,+,Wisdom Modifier,+,Spot Misc Mod
+Survival Ranks,,,,,
+Survival Misc Mod,,,,,
+Survival (Wis),Survival Ranks,+,Wisdom Modifier,+,Survival Misc Mod
+Bluff Ranks,,,,,
+Bluff Misc Mod,,,,,
+Bluff (Cha),Bluff Ranks,+,Charisma Modifier,+,Bluff Misc Mod
+Diplomacy Ranks,,,,,
+Diplomacy Misc Mod,,,,,
+Diplomacy (Cha),Diplomacy Ranks,+,Charisma Modifier,+,Diplomacy Misc Mod
+Disguise Ranks,,,,,
+Disguise Misc Mod,,,,,
+Disguise (Cha),Disguise Ranks,+,Charisma Modifier,+,Disguise Misc Mod
+Gather Information Ranks,,,,,
+Gather Information Misc Mod,,,,,
+Gather Information (Cha),Gather Information Ranks,+,Charisma Modifier,+,Gather Information Misc Mod
+Handle Animal Ranks,,,,,
+Handle Animal Misc Mod,,,,,
+Handle Animal (Cha),Handle Animal Ranks,+,Charisma Modifier,+,Handle Animal Misc Mod
+Intimidate Ranks,,,,,
+Intimidate Misc Mod,,,,,
+Intimidate (Cha),Intimidate Ranks,+,Charisma Modifier,+,Intimidate Misc Mod
+Perform Ranks,,,,,
+Perform Misc Mod,,,,,
+Perform (Cha),Perform Ranks,+,Charisma Modifier,+,Perform Misc Mod
+Use Magic Device Ranks,,,,,
+Use Magic Device Misc Mod,,,,,
+Use Magic Device (Cha),Use Magic Device Ranks,+,Charisma Modifier,+,Use Magic Device Misc Mod
+Base Attack Bonus,,,,,
+Special Size Modifier,,,,,
+Improved Trip Bonus,,,,,
+Improved Bull Rush Bonus,,,,,
+Improved Disarm Bonus,,,,,
+Improved Sunder Bonus,,,,,
+Improved Overrun Bonus,,,,,
+Improved Grapple Bonus,,,,,
+Weapon Size Disarm Mod,,,,,
+Weapon Size Sunder Mod,,,,,
+Trip Modifier,Strength Modifier,+,Special Size Modifier,+,Improved Trip Bonus
+Bull Rush Modifier,Strength Modifier,+,Special Size Modifier,+,Improved Bull Rush Bonus
+Disarm Modifier,Base Attack Bonus,+,Strength Modifier,+,Size Modifier
+Disarm Modifier,Weapon Size Disarm Mod,+,Improved Disarm Bonus,,
+Sunder Modifier,Base Attack Bonus,+,Strength Modifier,+,Size Modifier
+Sunder Modifier,Weapon Size Sunder Mod,+,Improved Sunder Bonus,,
+Overrun Modifier,Strength Modifier,+,Special Size Modifier,+,Improved Overrun Bonus
+Grapple Modifier,Base Attack Bonus,+,Strength Modifier,+,Special Size Modifier
+Grapple Modifier,Improved Grapple Bonus,,,,
+Speed,,,,,
+Initiative Misc Mod,,,,,

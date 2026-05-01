@@ -9,6 +9,7 @@ import {
   SelectableComponent,
   ImageComponent,
   ObjectTypeComponent,
+  ScriptedActionsComponent,
   Entity,
 } from '../Core/ECS.js';
 import { runScript } from '../Systems/ScriptRunner.js';
@@ -89,7 +90,6 @@ export function createObject(
 
   const newEntity = world.createEntity();
 
-  // Copy only the components that make sense for an instance object
   const compTypes = ['TransformComponent', 'DragComponent'];
   for (const compType of compTypes) {
     const comp = world.getComponent(templateEntity, compType);
@@ -98,7 +98,6 @@ export function createObject(
     }
   }
 
-  // Set transform overrides
   const transform = world.getComponent(templateEntity, 'TransformComponent');
   if (transform) {
     world.addComponent<TransformComponent>(newEntity, {
@@ -117,7 +116,6 @@ export function createObject(
     });
   }
 
-  // Apply movement rule from template
   const dragComp = world.getComponent(templateEntity, 'DragComponent');
   if (dragComp) {
     world.addComponent<DragComponent>(newEntity, {
@@ -127,21 +125,18 @@ export function createObject(
     });
   }
 
-  // Add SelectableComponent with correct settings (directly, so no deferred override issues)
   world.addComponent<SelectableComponent>(newEntity, {
     type: 'SelectableComponent',
     clickable: template.clickable,
-    visible: true,                  // <-- always visible at creation
+    visible: true,
     layer: template.layer,
   });
 
-  // Tag the object type
   world.addComponent<ObjectTypeComponent>(newEntity, {
     type: 'ObjectTypeComponent',
     objectType,
   });
 
-  // Image data
   if (overrides?.base64) {
     world.addComponent<ImageComponent>(newEntity, {
       type: 'ImageComponent',
@@ -152,7 +147,16 @@ export function createObject(
     });
   }
 
-  // Register in panel maps
+  const leftClick = template.movementRule ? 'begin_drag' : undefined;
+  const rightClick = template.scriptOnDelete ? 'delete_entity' : undefined;
+  if (leftClick || rightClick) {
+    world.addComponent<ScriptedActionsComponent>(newEntity, {
+      type: 'ScriptedActionsComponent',
+      leftClickScript: leftClick,
+      rightClickScript: rightClick,
+    });
+  }
+
   const parentAreaName = overrides?.parentAreaName ?? 'image_editor_area';
   const uniqueName = `_${objectType}_${newEntity.index}`;
   panelEntities.set(uniqueName, newEntity);

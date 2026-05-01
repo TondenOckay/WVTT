@@ -8,7 +8,6 @@ import { Window } from '../Window.js';
 import { createObject } from '../Ui/Objects2D.js';
 
 let imageContainer: PIXI.Container | null = null;
-let imageCounter = 0;
 
 function getImageContainer(): PIXI.Container {
   if (!imageContainer) {
@@ -20,7 +19,6 @@ function getImageContainer(): PIXI.Container {
   return imageContainer;
 }
 
-// ---------- ECS ↔ sprite sync ----------
 function startSyncLoop() {
   const app = Window.app;
   if (!app) return;
@@ -29,7 +27,6 @@ function startSyncLoop() {
     world.forEachIndex<ImageComponent>('ImageComponent', (idx, imgComp) => {
       const sprite = imgComp.sprite as PIXI.Sprite | undefined;
       if (!sprite) return;
-      // Use getComponentByIndex to bypass generation check
       const t = world.getComponentByIndex<TransformComponent>(idx, 'TransformComponent');
       if (t) {
         sprite.x = t.position.x;
@@ -41,7 +38,6 @@ function startSyncLoop() {
   });
 }
 
-// ---------- Paste handling ----------
 function onPaste(e: ClipboardEvent) {
   const items = e.clipboardData?.items;
   if (!items) return;
@@ -65,11 +61,8 @@ function onPaste(e: ClipboardEvent) {
         const texture = PIXI.Texture.from(img);
         const sprite = new PIXI.Sprite(texture);
         sprite.anchor.set(0.5);
-
-        // Place inside the main working area
         sprite.x = 330 + Math.random() * (1564 - 330);
         sprite.y = 100 + Math.random() * 900;
-
         sprite.eventMode = 'static';
         sprite.cursor = 'move';
         container.addChild(sprite);
@@ -78,6 +71,7 @@ function onPaste(e: ClipboardEvent) {
         reader.onload = () => {
           const base64 = reader.result as string;
 
+          // createObject will add ImageComponent with base64, but we want to attach the sprite already
           const entity = createObject('image', {
             x: sprite.x,
             y: sprite.y,
@@ -92,25 +86,23 @@ function onPaste(e: ClipboardEvent) {
             return;
           }
 
-          // Attach the sprite to the ImageComponent
+          // Attach sprite directly; createObject already added ImageComponent, we can update it.
           const imgComp = world.getComponent<ImageComponent>(entity, 'ImageComponent');
           if (imgComp) {
             imgComp.sprite = sprite;
             world.setComponent(entity, imgComp);
           }
-
           console.log(`[ImagePasteHandler] Created image entity ${entity.index}`);
         };
         reader.readAsDataURL(blob);
         URL.revokeObjectURL(blobURL);
       };
-
       img.onerror = () => {
         console.error('[ImagePasteHandler] Failed to load image');
         URL.revokeObjectURL(blobURL);
       };
       img.src = blobURL;
-      break;   // only paste the first image
+      break;   // only first image
     }
   }
 }

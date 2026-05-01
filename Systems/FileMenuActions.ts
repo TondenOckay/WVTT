@@ -2,6 +2,7 @@
 import { registerScript } from './ScriptRunner.js';
 import { getWorld } from '../Core/GlobalWorld.js';
 import { Window } from '../Window.js';
+import { panelEntities, panelRegions, clearPanelData } from '../Ui/Panel.js';
 import {
   TransformComponent,
   PanelComponent,
@@ -14,7 +15,6 @@ import {
   Entity,
 } from '../Core/ECS.js';
 
-/** Serialise the current ECS state, omitting non‑serialisable sprite references */
 function serializeWorld(): any {
   const world = getWorld();
   const data: any = { entities: [], _images: [] };
@@ -32,8 +32,6 @@ function serializeWorld(): any {
 
   const visited = new Set<number>();
 
-  // Save all named entities (panels + images)
-  const { panelEntities, panelRegions } = require('../Ui/Panel.js');  // we import dynamically for safety
   for (const [name, entity] of panelEntities) {
     if (visited.has(entity.index)) continue;
     visited.add(entity.index);
@@ -48,7 +46,6 @@ function serializeWorld(): any {
         const comp = world.getComponent(entity, type);
         if (comp) {
           const clean = { ...comp } as any;
-          // remove non‑serialisable sprite reference
           if (clean.sprite !== undefined) delete clean.sprite;
           entry.components[type] = clean;
         }
@@ -57,7 +54,6 @@ function serializeWorld(): any {
     data.entities.push(entry);
   }
 
-  // Text‑only entities not already saved
   world.forEach<TextComponent>('TextComponent', (entity) => {
     if (visited.has(entity.index)) return;
     if (world.hasComponent(entity, 'PanelComponent')) return;
@@ -72,7 +68,6 @@ function serializeWorld(): any {
     data.entities.push(entry);
   });
 
-  // Cameras
   world.forEach<CameraComponent>('CameraComponent', (entity) => {
     if (visited.has(entity.index)) return;
     visited.add(entity.index);
@@ -156,7 +151,7 @@ function loadWorld(data: any) {
   const world = getWorld();
   if (!world) return;
 
-  // 1. Destroy everything
+  // Destroy everything
   const all: Entity[] = [];
   world.forEach<any>('PanelComponent', e => all.push(e));
   world.forEach<any>('TextComponent', e => { if (!all.find(a => a.index === e.index)) all.push(e); });
@@ -164,11 +159,8 @@ function loadWorld(data: any) {
   world.forEach<any>('ImageComponent', e => { if (!all.find(a => a.index === e.index)) all.push(e); });
   for (const e of all) world.destroyEntity(e);
   world.executeCommands();
+  clearPanelData();
 
-  // clear panel maps (imported separately)
-  import('../Ui/Panel.js').then(m => m.clearPanelData());
-
-  // 2. Rebuild entities
   if (data.entities) {
     for (const entry of data.entities) {
       const e = world.createEntity();
@@ -197,24 +189,17 @@ function loadWorld(data: any) {
       if (c.SelectableComponent) world.addComponent(e, { type:'SelectableComponent', ...c.SelectableComponent } as any);
       if (c.ImageComponent) {
         world.addComponent(e, { type:'ImageComponent', ...c.ImageComponent } as any);
-        // Recreate the sprite
         const imgComp = c.ImageComponent;
         if (imgComp.base64) {
           const img = new Image();
           img.onload = () => {
-            const texture = PIXI.Texture.from(img);
-            const sprite = new PIXI.Sprite(texture);
+            const texture = (window as any).PIXI.Texture.from(img);
+            const sprite = new (window as any).PIXI.Sprite(texture);
             sprite.anchor.set(0.5);
             sprite.x = c.TransformComponent?.position?.x ?? 0;
             sprite.y = c.TransformComponent?.position?.y ?? 0;
             sprite.eventMode = 'static';
             sprite.cursor = 'move';
-            // attach to image container (created by ImagePasteHandler)
-            import('../Systems/ImagePasteHandler.js').then(module => {
-              // We'll just add it to the stage for now (the paste handler creates the container)
-              // Better: use a global accessor – but for simplicity we'll rely on the ImagePasteHandler container
-            });
-            // For now, add directly to stage (will be replaced properly later)
             Window.app?.stage.addChild(sprite);
             imgComp.sprite = sprite;
             world.setComponent(e, imgComp);

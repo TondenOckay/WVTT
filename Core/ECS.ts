@@ -1,17 +1,21 @@
 // ============================================================
-// ECS.ts  –  Combined Entity Component System
-//            Final zero‑allocation, production‑ready core
+// ECS.ts  –  Entity Component System (tags + sparse sets)
+//            Production‑ready core
 // ============================================================
 
 import { parseCsvArray } from '../parseCsv.js';
 
 // ------------------------------------------------------------------
-//  ENTITY (kept for external identity, not used in hot loops)
+//  ENTITY
 // ------------------------------------------------------------------
 export class Entity {
     constructor(public readonly index: number, public readonly generation: number) {}
-    equals(other: Entity): boolean { return this.index === other.index && this.generation === other.generation; }
-    toString(): string { return `Entity(${this.index}:${this.generation})`; }
+    equals(other: Entity): boolean {
+        return this.index === other.index && this.generation === other.generation;
+    }
+    toString(): string {
+        return `Entity(${this.index}:${this.generation})`;
+    }
     static Null = Object.freeze(new Entity(0, 0));
 }
 
@@ -50,7 +54,7 @@ export interface LayerComponent extends IComponent {
 
 export interface MVPComponent extends IComponent {
     type: 'MVPComponent';
-    mvp: number[]; // 4x4 flat
+    mvp: number[];
 }
 
 export interface SelectedComponent extends IComponent {
@@ -68,11 +72,12 @@ export interface CameraComponent extends IComponent {
     invertY: boolean;
 }
 
+// ---------- UI / WORLD components ----------
+
 export interface PanelComponent extends IComponent {
     type: 'PanelComponent';
-    id: number;
+    styleId: number;          // index into styleArray
     textId: number;
-    visible: boolean;
     layer: number;
     alpha: number;
     clickable: boolean;
@@ -82,34 +87,35 @@ export interface PanelComponent extends IComponent {
 export interface TextComponent extends IComponent {
     type: 'TextComponent';
     id: number;
-    contentId: number;
-    fontId: number;
+    contentId: string;
+    fontId: string;
     fontSize: number;
     color: { r: number; g: number; b: number; a: number };
-    align: number;
+    align: string;
     rotation: number;
     layer: number;
     source: number;
-    prefix: number;
-    panelId: number;
+    prefix: string;
+    panelId: string;
+    panelIndex: number;         // NEW: entity index of linked panel
     padLeft: number;
     padTop: number;
     lineHeight: number;
-    vAlign: number;
+    vAlign: string;
     styleId: number;
 }
 
 export interface DragComponent extends IComponent {
     type: 'DragComponent';
-    parentNameId: number;
-    movementId: number;
-    moveEdge: number;
+    parentNameId: string;
+    movementId: string;
+    moveEdge: string;
     minX: number;
     maxX: number;
 }
 
 export interface SceneRootComponent extends IComponent { type: 'SceneRootComponent'; }
-export interface NameComponent extends IComponent { type: 'NameComponent'; nameId: number; }
+export interface NameComponent extends IComponent { type: 'NameComponent'; nameId: string; }
 export interface ParentComponent extends IComponent { type: 'ParentComponent'; parent: Entity; }
 export interface LightComponent extends IComponent {
     type: 'LightComponent';
@@ -136,7 +142,59 @@ export interface ImageComponent extends IComponent {
 
 export interface ObjectTypeComponent extends IComponent {
     type: 'ObjectTypeComponent';
-    objectType: string;   // matches the CSV object_type column
+    objectType: string;
+}
+
+export interface ScriptedActionsComponent extends IComponent {
+    type: 'ScriptedActionsComponent';
+    leftClickScript?: string;
+    rightClickScript?: string;
+}
+
+// ---------- TAG components (zero‑data) ----------
+
+export interface HoveredTag extends IComponent { type: 'Hovered'; }
+export interface SelectedTag extends IComponent { type: 'Selected'; }
+export interface VisibleTag extends IComponent { type: 'Visible'; }
+export interface CulledTag extends IComponent { type: 'Culled'; }
+
+export interface NavButtonComponent extends IComponent {
+    type: 'NavButton';
+    area: string;
+}
+
+// ---------- Event / Request components ----------
+
+export interface DragRequest extends IComponent {
+    type: 'DragRequest';
+    panelName: string;
+    movementRule: string;
+    mouseX: number;
+    mouseY: number;
+    resizeEdge?: string;
+}
+
+export interface SwitchTabRequest extends IComponent {
+    type: 'SwitchTabRequest';
+    areaName: string;
+}
+
+export interface CloneRequest extends IComponent {
+    type: 'CloneRequest';
+    templateName: string;
+    targetParentName: string;
+}
+
+export interface RunScriptRequest extends IComponent {
+    type: 'RunScriptRequest';
+    scriptName: string;
+}
+
+export interface CursorState extends IComponent {
+    type: 'CursorState';
+    entityId: number | null;
+    mouseX: number;
+    mouseY: number;
 }
 
 // ------------------------------------------------------------------
@@ -197,7 +255,6 @@ class SparseSetStorage<T extends IComponent> implements ComponentStorage {
     getDenseArray(): T[] { return this.dense; }
     getEntityIndices(): number[] { return this.entities; }
 
-    /** Zero‑allocation iteration: callback receives entityIndex and component reference */
     forEachIndex(callback: (entityIndex: number, comp: T) => void): void {
         const count = this.count;
         const ents = this.entities;
@@ -213,7 +270,7 @@ class SparseSetStorage<T extends IComponent> implements ComponentStorage {
 // ------------------------------------------------------------------
 export class World {
     private nextEntityId = 1;
-    private generations: number[] = new Array(1024).fill(0);
+    generations: number[] = new Array(1024).fill(0); // public for external Entity creation
     private freeIndices: number[] = [];
     private storages = new Map<string, SparseSetStorage<any>>();
     private commands: (() => void)[] = [];
@@ -225,20 +282,23 @@ export class World {
         return this.storages.get(typeName)!;
     }
 
-    // --- Entity management ---
     createEntity(): Entity {
         let index: number;
         if (this.freeIndices.length > 0) {
-            index = this.freeIndices.pop()!;   // O(1)
+            index = this.freeIndices.pop()!;
         } else {
             index = this.nextEntityId++;
-            if (index >= this.generations.length) {
-                this.generations.length *= 2;
-            }
+            if (index >= this.generations.length) this.generations.length *= 2;
         }
         const gen = (this.generations[index] ?? 0) + 1;
         this.generations[index] = gen;
         return new Entity(index, gen);
+    }
+
+    createActionEntity<T extends IComponent>(comp: T): Entity {
+        const e = this.createEntity();
+        this.addComponent(e, comp);
+        return e;
     }
 
     destroyEntity(e: Entity): void {
@@ -254,16 +314,16 @@ export class World {
         return index < this.generations.length && this.generations[index] === generation;
     }
 
-    // --- Component API (unchanged) ---
     addComponent<T extends IComponent>(e: Entity, comp: T): void {
+        const idx = e.index, gen = e.generation;
         this.commands.push(() => {
-            if (!this.isAlive(e.index, e.generation)) return;
+            if (!this.isAlive(idx, gen)) return;
             const storage = this.getStorage<T>(comp.type);
-            if (!storage.has(e.index)) {
-                storage.add(e.index, comp);
+            if (!storage.has(idx)) {
+                storage.add(idx, comp);
             } else {
-                const denseIdx = storage['sparse'][e.index];
-                storage['dense'][denseIdx] = comp;
+                const denseIdx = (storage as any)['sparse'][idx];
+                (storage as any)['dense'][denseIdx] = comp;
             }
         });
     }
@@ -274,10 +334,6 @@ export class World {
         return storage?.has(e.index) ? storage.get(e.index) as T : undefined;
     }
 
-    /**
-     * Get a component by entity index only, bypassing generation check.
-     * Safe inside zero‑allocation iterators where entities are guaranteed alive.
-     */
     getComponentByIndex<T extends IComponent>(entityIndex: number, typeName: string): T | undefined {
         const storage = this.storages.get(typeName) as SparseSetStorage<T>;
         if (!storage) return undefined;
@@ -294,6 +350,11 @@ export class World {
         return storage ? storage.has(e.index) : false;
     }
 
+    hasComponentByIndex(entityIndex: number, typeName: string): boolean {
+        const storage = this.storages.get(typeName);
+        return storage ? storage.has(entityIndex) : false;
+    }
+
     removeComponent(e: Entity, typeName: string): void {
         this.commands.push(() => {
             if (!this.isAlive(e.index, e.generation)) return;
@@ -301,30 +362,27 @@ export class World {
         });
     }
 
-    /** Execute all deferred commands – now O(n) single pass, no shift(). */
+    addTag(e: Entity, tagType: string): void {
+        this.addComponent(e, { type: tagType } as any);
+    }
+
+    removeTag(e: Entity, tagType: string): void {
+        this.removeComponent(e, tagType);
+    }
+
     executeCommands(): void {
-        for (let i = 0; i < this.commands.length; i++) {
-            this.commands[i]();
-        }
+        for (let i = 0; i < this.commands.length; i++) this.commands[i]();
         this.commands.length = 0;
     }
 
-    // ---------- ZERO‑ALLOCATION ITERATION (HOT PATH) ----------
-
-    /** Iterate over all entities with a single component. Zero allocation. */
     forEachIndex<T extends IComponent>(typeName: string, callback: (entityIndex: number, comp: T) => void): void {
         const storage = this.storages.get(typeName) as SparseSetStorage<T>;
         if (!storage) return;
         storage.forEachIndex(callback);
     }
 
-    /**
-     * Iterate over entities with two components, smallest‑set first.
-     * Zero allocation. Does NOT check generation (entities are valid until end‑of‑tick flush).
-     */
     forEachIndex2<T1 extends IComponent, T2 extends IComponent>(
-        type1: string,
-        type2: string,
+        type1: string, type2: string,
         callback: (entityIndex: number, comp1: T1, comp2: T2) => void
     ): void {
         const s1 = this.storages.get(type1) as SparseSetStorage<T1>;
@@ -345,14 +403,8 @@ export class World {
         }
     }
 
-    /**
-     * Iterate over entities with three components, smallest‑set first.
-     * Zero allocation.
-     */
     forEachIndex3<T1 extends IComponent, T2 extends IComponent, T3 extends IComponent>(
-        type1: string,
-        type2: string,
-        type3: string,
+        type1: string, type2: string, type3: string,
         callback: (entityIndex: number, comp1: T1, comp2: T2, comp3: T3) => void
     ): void {
         const s1 = this.storages.get(type1) as SparseSetStorage<T1>;
@@ -360,106 +412,14 @@ export class World {
         const s3 = this.storages.get(type3) as SparseSetStorage<T3>;
         if (!s1 || !s2 || !s3) return;
         const sets = [s1, s2, s3].sort((a, b) => a.getCount() - b.getCount());
-        const smallest = sets[0];
-        const e1 = sets[1];
-        const e2 = sets[2];
+        const smallest = sets[0], e1 = sets[1], e2 = sets[2];
         const entities = smallest.getEntityIndices();
         const count = smallest.getCount();
         for (let i = 0; i < count; i++) {
             const idx = entities[i];
             if (e1.has(idx) && e2.has(idx)) {
-                const comp1 = s1.get(idx);
-                const comp2 = s2.get(idx);
-                const comp3 = s3.get(idx);
-                callback(idx, comp1, comp2, comp3);
+                callback(idx, s1.get(idx), s2.get(idx), s3.get(idx));
             }
-        }
-    }
-
-    // ---------- LEGACY METHODS (for non‑hot code) ----------
-    forEach<T extends IComponent>(typeName: string, action: (entity: Entity, comp: T) => void): void {
-        const storage = this.storages.get(typeName) as SparseSetStorage<T>;
-        if (!storage) return;
-        storage.forEachIndex((idx, comp) => {
-            action(new Entity(idx, this.generations[idx]), comp);
-        });
-    }
-
-    query<T extends IComponent>(typeName: string): [Entity, T][] {
-        const result: [Entity, T][] = [];
-        this.forEach(typeName, (e, c) => result.push([e, c]));
-        return result;
-    }
-
-    forEach2<T1 extends IComponent, T2 extends IComponent>(
-        type1: string, type2: string, action: (e: Entity, c1: T1, c2: T2) => void
-    ): void {
-        this.forEachIndex2(type1, type2, (idx, c1, c2) => {
-            action(new Entity(idx, this.generations[idx]), c1, c2);
-        });
-    }
-
-    query2<T1 extends IComponent, T2 extends IComponent>(type1: string, type2: string): [Entity, T1, T2][] {
-        const result: [Entity, T1, T2][] = [];
-        this.forEach2(type1, type2, (e, c1, c2) => result.push([e, c1, c2]));
-        return result;
-    }
-
-    forEach3<T1 extends IComponent, T2 extends IComponent, T3 extends IComponent>(
-        type1: string, type2: string, type3: string,
-        action: (e: Entity, c1: T1, c2: T2, c3: T3) => void
-    ): void {
-        this.forEachIndex3(type1, type2, type3, (idx, c1, c2, c3) => {
-            action(new Entity(idx, this.generations[idx]), c1, c2, c3);
-        });
-    }
-
-    query3<T1 extends IComponent, T2 extends IComponent, T3 extends IComponent>(
-        type1: string, type2: string, type3: string
-    ): [Entity, T1, T2, T3][] {
-        const result: [Entity, T1, T2, T3][] = [];
-        this.forEach3(type1, type2, type3, (e, c1, c2, c3) => result.push([e, c1, c2, c3]));
-        return result;
-    }
-}
-
-// ------------------------------------------------------------------
-//  SYSTEM RUNNER (unchanged)
-// ------------------------------------------------------------------
-type SystemFunction = (world: World, delta?: number) => void;
-const systemRegistry = new Map<string, SystemFunction>();
-
-export function registerECSSystem(name: string, fn: SystemFunction): void {
-    systemRegistry.set(name, fn);
-}
-
-export async function loadAndRunECSSystems(csvPath: string, world: World): Promise<void> {
-    const response = await fetch(csvPath);
-    const text = await response.text();
-    const rows = parseCsvArray(text);
-
-    const enabledSystems: { name: string; order: number; fn: SystemFunction }[] = [];
-    for (const row of rows) {
-        if (row['Enabled']?.toLowerCase() !== 'true') continue;
-        const name = row['SystemName'];
-        const fn = systemRegistry.get(name);
-        if (!fn) {
-            console.warn(`[ECS] System "${name}" not registered, skipping`);
-            continue;
-        }
-        enabledSystems.push({
-            name,
-            order: parseInt(row['Order'] ?? '0'),
-            fn,
-        });
-    }
-    enabledSystems.sort((a, b) => a.order - b.order);
-
-    for (const sys of enabledSystems) {
-        try {
-            sys.fn(world, 0);
-        } catch (err) {
-            console.error(`[ECS] Error in system "${sys.name}":`, err);
         }
     }
 }

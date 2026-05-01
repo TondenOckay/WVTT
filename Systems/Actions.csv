@@ -1,2 +1,5 @@
 action_id,operation,template,target_parent
-add_sheet_box,clone_entity,_sheet_box_template,sheet_editor_area
+add_sheet_box,clone_entity,box_template,sheet_editor_area
+set_move_mode,set_move_mode,,,
+set_resize_mode,set_resize_mode,,,
+delete_selected,delete_selected,,,

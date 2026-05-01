@@ -1,0 +1,2 @@
+dropdown_id,parent_panel,pos_x,pos_y,width,height,data_source,data_column,on_select_action
+game_system_dropdown,right_panel,0,0,200,30,Rule Systems/GameSystems.csv,game_system,populate_sheet_fields
