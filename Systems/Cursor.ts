@@ -25,11 +25,9 @@ function Update() {
   const world = getWorld();
   const mouse = Input.MousePos;
 
-  // hitTestPanel still returns a string for backward compatibility
-  const name = hitTestPanel ? hitTestPanel(mouse.x, mouse.y) : null;
+  const name = hitTestPanel(mouse.x, mouse.y);
   hoveredObjectName = name;
 
-  // derive entity index from panelEntities (name → Entity map)
   if (name) {
     const entity = panelEntities.get(name);
     hoveredEntityId = entity ? entity.index : null;

@@ -1,4 +1,4 @@
-// Ui/Scene2D.ts – draws panels (tags + static styles) and text (anchor‑aware positioning)
+// Ui/Scene2D.ts – draws panels (tags + static styles), text (anchor‑aware), clip‑child masks
 import * as PIXI from 'pixi.js';
 import { registerSystemMethod } from '../Core/Scheduler.js';
 import { getWorld } from '../Core/GlobalWorld.js';
@@ -78,6 +78,16 @@ function Update() {
         container.addChild(bg);
         (container as any).__bg = bg;
 
+        // clip children
+        if (panel.clipChildren) {
+          const mask = new PIXI.Graphics();
+          mask.fill({ color: 0xffffff });
+          mask.rect(0, 0, w, h);
+          mask.fill();
+          container.addChild(mask);
+          container.mask = mask;
+        }
+
         panelSprites.set(entityIndex, container);
         lastScaleX.set(entityIndex, w);
         lastScaleY.set(entityIndex, h);
@@ -96,6 +106,13 @@ function Update() {
             bg.rect(0, 0, w, h);
             bg.fill();
           }
+          const existingMask = container.mask as PIXI.Graphics | undefined;
+          if (existingMask) {
+            existingMask.clear();
+            existingMask.fill({ color: 0xffffff });
+            existingMask.rect(0, 0, w, h);
+            existingMask.fill();
+          }
           lastScaleX.set(entityIndex, w);
           lastScaleY.set(entityIndex, h);
           lastColorHex.set(entityIndex, newHex);
@@ -109,7 +126,7 @@ function Update() {
     }
   }
 
-  // ========== TEXT (with proper anchor / alignment) ==========
+  // ========== TEXT ==========
   world.forEachIndex2<TextComponent, TransformComponent>(
     'TextComponent',
     'TransformComponent',
@@ -158,33 +175,18 @@ function Update() {
       txt.alpha = textComp.color.a;
       txt.zIndex = textComp.layer;
 
-      // ===== RESTORED ANCHOR LOGIC (from original Scene2D) =====
-      const isVertical = Math.abs(textComp.rotation ?? 0) === 90 ||
-                         Math.abs(textComp.rotation ?? 0) === 270;
-      if (isVertical) {
-        txt.anchor.set(0.5);
-      } else {
+      const isVertical = Math.abs(textComp.rotation ?? 0) === 90 || Math.abs(textComp.rotation ?? 0) === 270;
+      if (isVertical) txt.anchor.set(0.5);
+      else {
         const align = textComp.align ?? 'left';
-        if (align === 'center') {
-          txt.anchor.set(0.5, 0);
-        } else if (align === 'right') {
-          txt.anchor.set(1, 0);
-        } else {
-          txt.anchor.set(0, 0);
-        }
+        if (align === 'center') txt.anchor.set(0.5, 0);
+        else if (align === 'right') txt.anchor.set(1, 0);
+        else txt.anchor.set(0, 0);
       }
-
-      // vertical anchor based on valign
       const vAlign = textComp.vAlign ?? 'top';
-      if (vAlign === 'middle') {
-        txt.anchor.y = 0.5;
-      } else if (vAlign === 'bottom') {
-        txt.anchor.y = 1;
-      } else {
-        // 'top' – keep anchor.y = 0
-      }
+      if (vAlign === 'middle') txt.anchor.y = 0.5;
+      else if (vAlign === 'bottom') txt.anchor.y = 1;
 
-      // rotation (already set in style, but we also apply it)
       txt.rotation = (textComp.rotation ?? 0) * Math.PI / 180;
     }
   );

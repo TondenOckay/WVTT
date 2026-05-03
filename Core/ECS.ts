@@ -1,6 +1,6 @@
 // ============================================================
 // ECS.ts  –  Entity Component System (tags + sparse sets)
-//            Production‑ready core
+//            Production‑ready core, movement groups + all flags
 // ============================================================
 
 import { parseCsvArray } from '../parseCsv.js';
@@ -10,12 +10,8 @@ import { parseCsvArray } from '../parseCsv.js';
 // ------------------------------------------------------------------
 export class Entity {
     constructor(public readonly index: number, public readonly generation: number) {}
-    equals(other: Entity): boolean {
-        return this.index === other.index && this.generation === other.generation;
-    }
-    toString(): string {
-        return `Entity(${this.index}:${this.generation})`;
-    }
+    equals(other: Entity): boolean { return this.index === other.index && this.generation === other.generation; }
+    toString(): string { return `Entity(${this.index}:${this.generation})`; }
     static Null = Object.freeze(new Entity(0, 0));
 }
 
@@ -73,10 +69,9 @@ export interface CameraComponent extends IComponent {
 }
 
 // ---------- UI / WORLD components ----------
-
 export interface PanelComponent extends IComponent {
     type: 'PanelComponent';
-    styleId: number;          // index into styleArray
+    styleId: number;
     textId: number;
     layer: number;
     alpha: number;
@@ -97,7 +92,7 @@ export interface TextComponent extends IComponent {
     source: number;
     prefix: string;
     panelId: string;
-    panelIndex: number;         // NEW: entity index of linked panel
+    panelIndex: number;
     padLeft: number;
     padTop: number;
     lineHeight: number;
@@ -116,7 +111,6 @@ export interface DragComponent extends IComponent {
 
 export interface SceneRootComponent extends IComponent { type: 'SceneRootComponent'; }
 export interface NameComponent extends IComponent { type: 'NameComponent'; nameId: string; }
-export interface ParentComponent extends IComponent { type: 'ParentComponent'; parent: Entity; }
 export interface LightComponent extends IComponent {
     type: 'LightComponent';
     color: { r: number; g: number; b: number };
@@ -151,8 +145,27 @@ export interface ScriptedActionsComponent extends IComponent {
     rightClickScript?: string;
 }
 
-// ---------- TAG components (zero‑data) ----------
+// ---------- Movement group ----------
+export interface MovementGroupEntry {
+    entityId: number;
+    attachEdge: string;   // 'all', 'right', 'left', 'top', 'bottom'
+    origLeft: number;
+    origTop: number;
+    origWidth: number;
+    origHeight: number;
+    clipMinX?: number;
+    clipMaxX?: number;
+    clipMinY?: number;
+    clipMaxY?: number;
+}
 
+export interface MovementGroupComponent extends IComponent {
+    type: 'MovementGroup';
+    parentMovementRule: string;   // 'drag_x', 'drag_xy'
+    entries: MovementGroupEntry[];
+}
+
+// ---------- TAG components (zero‑data) ----------
 export interface HoveredTag extends IComponent { type: 'Hovered'; }
 export interface SelectedTag extends IComponent { type: 'Selected'; }
 export interface VisibleTag extends IComponent { type: 'Visible'; }
@@ -163,8 +176,30 @@ export interface NavButtonComponent extends IComponent {
     area: string;
 }
 
-// ---------- Event / Request components ----------
+// ---------- Dirty flags for different systems ----------
+export interface MovementFlag extends IComponent {
+    type: 'MovementFlag';
+}
 
+export interface CloneFlag extends IComponent {
+    type: 'CloneFlag';
+}
+
+export interface RunScriptFlag extends IComponent {
+    type: 'RunScriptFlag';
+}
+
+export interface FollowCursorFlag extends IComponent {
+    type: 'FollowCursorFlag';
+}
+
+// ---------- Current selection (singleton) ----------
+export interface CurrentSelection extends IComponent {
+    type: 'CurrentSelection';
+    entityId: number | null;
+}
+
+// ---------- Event / Request components ----------
 export interface DragRequest extends IComponent {
     type: 'DragRequest';
     panelName: string;
@@ -270,7 +305,7 @@ class SparseSetStorage<T extends IComponent> implements ComponentStorage {
 // ------------------------------------------------------------------
 export class World {
     private nextEntityId = 1;
-    generations: number[] = new Array(1024).fill(0); // public for external Entity creation
+    generations: number[] = new Array(1024).fill(0);
     private freeIndices: number[] = [];
     private storages = new Map<string, SparseSetStorage<any>>();
     private commands: (() => void)[] = [];

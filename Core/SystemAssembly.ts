@@ -2,7 +2,7 @@
 import './Debug.js';
 import '../Window.js';
 import '../RenderPhases.js';
-import './Object.js';            // fixed: was ../Object.js
+import './Object.js';
 import '../Ui/Color.js';
 import '../Ui/Font.js';
 import '../Ui/Panel.js';
@@ -17,8 +17,8 @@ import '../Systems/FileMenuActions.js';
 import '../Systems/SystemEditor.js';
 import '../Assets/Assets.js';
 import '../Ui/Objects2D.js';
-import '../Systems/Actions.js';
 import '../Ui/SceneTree.js';
 import '../Systems/Cursor.js';
 import '../Systems/TabSystem.js';
+import '../Controls/CloneSystem.js';
 // AssetStore will be added when the file is created

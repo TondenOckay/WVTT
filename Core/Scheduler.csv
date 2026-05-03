@@ -15,9 +15,10 @@ SETUE.Controls.Selection,Load,,Boot,,13,0.00013,0,1,0,../Controls/Selection.js
 SETUE.Controls.Movement,Load,,Boot,,14,0.000135,0,1,0,../Controls/Movement.js
 SETUE.Scene.Scene2D,Load,,Boot,,17,0.00015,0,1,0,../Scene2D.js
 SETUE.Systems.Objects2D,Load,,Boot,,6,0.000066,0,1,0,
-SETUE.Systems.Actions,Load,,Boot,,6,0.000067,0,1,0,
 SETUE.Systems.Cursor,Load,,Boot,,9,0.000094,0,1,0,../Cursor.js
 SETUE.Systems.LODCulling,Load,,Boot,,7,0.00007,0,1,0,
+SETUE.Systems.CloneSystem,Load,,Boot,,9.2,0.000099,0,1,0,../Controls/CloneSystem.js
+SETUE.Systems.Panels,BuildMovementGroups,,Boot,,9.5,0.000095,0,1,0,
 SETUE.Core.ECSCleanup,,Execute,A,Core,1,0.001,0,1,0,
 SETUE.Systems.LODCulling,,Update,A,Core,2,0.0015,0,1,0,
 SETUE.Controls.Camera,,Update,A,Input,3,0.011,0,1,0,
@@ -25,8 +26,8 @@ SETUE.Window,,ProcessEvents,A,Input,4,0.011,0,1,0,
 SETUE.Systems.Cursor,,Update,A,Input,5,0.0115,0,1,0,
 SETUE.Controls.Input,,Flush,A,Input,6,0.012,0,1,0,
 SETUE.Controls.Selection,,Update,A,Input,7,0.0135,0,1,0,
+SETUE.Systems.CloneSystem,,Update,A,Input,7.5,0.0138,0,1,0,
 SETUE.Controls.Movement,,UpdateDrags,A,Input,8,0.014,0,1,0,
-SETUE.Systems.Actions,,Update,A,Input,9,0.0142,0,1,0,
 SETUE.Systems.TabSystem,,Update,A,UI,10,0.015,0,1,0,
 SETUE.Systems.Texts,,Update,A,UI,11,0.0155,0,1,0,
 SETUE.Systems.ImagePasteHandler,,Update,A,UI,12,0.016,0,1,0,

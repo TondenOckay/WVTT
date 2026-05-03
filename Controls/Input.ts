@@ -1,26 +1,23 @@
-// Controls/Input.ts – hardware tracker + unified CSV rule engine
+// Controls/Input.ts – DIAGNOSTIC (logs key matching / flag setting)
 import { registerSystemMethod } from '../Core/Scheduler.js';
 import { parseCsvArray } from '../parseCsv.js';
 import { getWorld } from '../Core/GlobalWorld.js';
 import { BaseWorldData } from '../Core/BaseWorldData.js';
 import {
   CursorState,
-  DragRequest,
-  SwitchTabRequest,
-  CloneRequest,
-  RunScriptRequest,
   Entity,
+  MovementFlag,
+  CloneFlag,
+  RunScriptFlag,
+  FollowCursorFlag,
+  CurrentSelection,
 } from '../Core/ECS.js';
 import { hoveredEntityId, hoveredObjectName } from '../Systems/Cursor.js';
 
 // ---------------------------------------------------------------------------
 // Hardware bindings
 // ---------------------------------------------------------------------------
-interface Binding {
-  input: string;
-  modifier: string;
-  editChar: string;
-}
+interface Binding { input: string; modifier: string; editChar: string; }
 
 const actionBindings = new Map<string, Binding[]>();
 const actionEnabled = new Set<string>();
@@ -38,9 +35,6 @@ export const Input = {
   get IsShiftHeld() { return this._shift; },
 };
 
-// ---------------------------------------------------------------------------
-// Original action helpers (used by Camera, etc.)
-// ---------------------------------------------------------------------------
 function modifierMatches(desired: string) {
   if (desired === 'Ctrl') return Input._ctrl;
   if (desired === 'Shift') return Input._shift;
@@ -51,9 +45,8 @@ export function IsActionHeld(action: string) {
   if (!actionEnabled.has(action)) return false;
   const bindings = actionBindings.get(action);
   if (!bindings) return false;
-  for (const { input, modifier } of bindings) {
+  for (const { input, modifier } of bindings)
     if (held.has(input) && modifierMatches(modifier)) return true;
-  }
   return false;
 }
 
@@ -61,9 +54,8 @@ export function IsActionPressed(action: string) {
   if (!actionEnabled.has(action)) return false;
   const bindings = actionBindings.get(action);
   if (!bindings) return false;
-  for (const { input, modifier } of bindings) {
+  for (const { input, modifier } of bindings)
     if (pressed.has(input) && modifierMatches(modifier)) return true;
-  }
   return false;
 }
 
@@ -74,7 +66,7 @@ export function ConsumeAction(action: string) {
 }
 
 // ---------------------------------------------------------------------------
-// Ring‑buffer event queue (for tab switching, etc.)
+// Ring‑buffer event queue (for TabSwitch only)
 // ---------------------------------------------------------------------------
 export interface UIEvent {
   kind: 'TabSwitch';
@@ -89,7 +81,6 @@ export function pushUIEvent(evt: UIEvent) {
   if (next === eventHead) eventHead = (eventHead + 1) & (EVENT_QUEUE_SIZE - 1);
   eventQueue[eventTail] = evt;
   eventTail = next;
-  console.log(`[Input] Pushed event: kind=${evt.kind} entity=${evt.data.entityId} area=${evt.data.areaName || 'none'}`);
 }
 
 export function popAllUIEvents(): UIEvent[] {
@@ -102,14 +93,16 @@ export function popAllUIEvents(): UIEvent[] {
 }
 
 // ---------------------------------------------------------------------------
-// Unified interaction rules (loaded from Controls/Input.csv)
+// CurrentSelection singleton
+// ---------------------------------------------------------------------------
+let currentSelectionEntity: Entity | null = null;
+
+// ---------------------------------------------------------------------------
+// CSV rule definitions (with priority)
 // ---------------------------------------------------------------------------
 interface InputRule {
-  key: string;
-  workspace: string;
-  object: string;
-  actionType: string;
-  param: string;
+  key: string; workspace: string; object: string;
+  actionType: string; param: string; flagSystem: string; priority: number;
 }
 let inputRules: InputRule[] = [];
 let previousHoveredObjectName: string | null = null;
@@ -128,10 +121,10 @@ async function Load() {
   }
   console.log(`[Input] Loaded ${actionBindings.size} bindings`);
 
-  // Load the existing Controls/Input.csv
+  // Load Controls/Input.csv
   try {
-    const response = await fetch('Controls/Input.csv');
-    const text = await response.text();
+    const resp = await fetch('Controls/Input.csv');
+    const text = await resp.text();
     const rows = parseCsvArray(text);
     inputRules = rows
       .filter(r => r['key'])
@@ -141,13 +134,24 @@ async function Load() {
         object:     r['object'] ?? '*',
         actionType: r['action_type'] ?? '',
         param:      r['param'] ?? '',
-      }));
-    console.log(`[Input] Loaded ${inputRules.length} interaction rules from Input.csv`);
+        flagSystem: r['flag_system'] ?? '',
+        priority:   parseInt(r['priority'] ?? '0') || 0,
+      }))
+      .sort((a, b) => b.priority - a.priority);
+    console.log(`[Input] Loaded ${inputRules.length} rules`);
   } catch (err) {
-    console.warn('[Input] Controls/Input.csv not found – interaction rules empty');
+    console.warn('[Input] Controls/Input.csv not found');
   }
 
-  // Mouse / keyboard listeners
+  // Create CurrentSelection singleton
+  const world = getWorld();
+  currentSelectionEntity = world.createEntity();
+  world.addComponent<CurrentSelection>(currentSelectionEntity, {
+    type: 'CurrentSelection',
+    entityId: null,
+  });
+
+  // Mouse / keyboard listeners (unchanged)
   const canvas = document.querySelector('canvas');
   if (canvas) {
     window.addEventListener('mousemove', (e: MouseEvent) => {
@@ -212,7 +216,7 @@ function mouseButtonName(button: number) {
 }
 
 // ---------------------------------------------------------------------------
-// Rule matching & execution
+// Rule matching & flag setting
 // ---------------------------------------------------------------------------
 function matchesObject(pattern: string, objectName: string | null): boolean {
   if (!objectName) return false;
@@ -226,51 +230,50 @@ function findEntityIndexByName(world: any, name: string): number | null {
   return map?.get(name) ?? null;
 }
 
+function setFlag(world: any, entityIndex: number, flagType: string) {
+  const gen = world.generations[entityIndex];
+  world.addTag(new Entity(entityIndex, gen), flagType);
+  world.executeCommands();
+}
+
+function removeFlagOnEntity(world: any, entityIndex: number, flagType: string) {
+  const gen = world.generations[entityIndex];
+  world.removeTag(new Entity(entityIndex, gen), flagType);
+}
+
 function executeAction(world: any, rule: InputRule, entityIndex: number | null, objectName: string | null) {
   if (entityIndex === null) return;
-  switch (rule.actionType) {
-    case 'add_tag':
-      world.addTag(new Entity(entityIndex, world.generations[entityIndex]), rule.param);
-      break;
-    case 'remove_tag':
-      world.removeTag(new Entity(entityIndex, world.generations[entityIndex]), rule.param);
-      break;
-    case 'SwitchTabRequest':
-      pushUIEvent({
-        kind: 'TabSwitch',
-        data: { entityId: entityIndex, areaName: rule.param || objectName || '' },
-      });
-      break;
-    case 'DragRequest':
-      world.createActionEntity<DragRequest>({
-        type: 'DragRequest',
-        panelName: objectName ?? '',
-        movementRule: rule.param,
-        mouseX: Input._mouseX,
-        mouseY: Input._mouseY,
-      });
-      break;
-    case 'CloneRequest':
-      world.createActionEntity<CloneRequest>({
-        type: 'CloneRequest',
-        templateName: rule.param,
-        targetParentName: objectName ?? '',
-      });
-      break;
-    case 'RunScriptRequest':
-      world.createActionEntity<RunScriptRequest>({
-        type: 'RunScriptRequest',
-        scriptName: rule.param,
-      });
-      break;
+
+  if (rule.actionType === 'add_tag')    { setFlag(world, entityIndex, rule.param); return; }
+  if (rule.actionType === 'remove_tag') { removeFlagOnEntity(world, entityIndex, rule.param); return; }
+  if (rule.actionType === 'remove_flag'){ removeFlagOnEntity(world, entityIndex, rule.param); return; }
+  if (rule.actionType === 'SelectEntity') {
+    if (currentSelectionEntity) {
+      const sel = world.getComponent<CurrentSelection>(currentSelectionEntity, 'CurrentSelection');
+      if (sel) {
+        sel.entityId = entityIndex;
+        world.setComponent(currentSelectionEntity, sel);
+        world.executeCommands();
+      }
+    }
+    return;
+  }
+
+  switch (rule.flagSystem) {
+    case 'Movement':      setFlag(world, entityIndex, 'MovementFlag'); break;
+    case 'Clone':         setFlag(world, entityIndex, 'CloneFlag'); break;
+    case 'RunScript':     setFlag(world, entityIndex, 'RunScriptFlag'); break;
+    case 'FollowCursor':  setFlag(world, entityIndex, 'FollowCursorFlag'); break;
+    case 'TabSwitch':     pushUIEvent({ kind: 'TabSwitch', data: { entityId: entityIndex, areaName: rule.param || objectName || '' } }); break;
   }
 }
 
-function applyMatchingRules(world: any, key: string, objectName: string | null, entityIndex: number | null) {
+function applyGenericRule(world: any, key: string, objectName: string | null, entityIndex: number | null) {
   if (!objectName || entityIndex === null) return;
   for (const rule of inputRules) {
     if (rule.key === key && matchesObject(rule.object, objectName)) {
       executeAction(world, rule, entityIndex, objectName);
+      return;
     }
   }
 }
@@ -281,38 +284,52 @@ function applyMatchingRules(world: any, key: string, objectName: string | null, 
 function Flush() {
   const world = getWorld();
 
-  // 1. Process hover changes
-  const currentHoveredName = hoveredObjectName;
-  if (currentHoveredName !== previousHoveredObjectName) {
+  // 1. hover changes
+  const curName = hoveredObjectName;
+  if (curName !== previousHoveredObjectName) {
     if (previousHoveredObjectName) {
       const prevIdx = findEntityIndexByName(world, previousHoveredObjectName);
-      applyMatchingRules(world, 'hover_leave', previousHoveredObjectName, prevIdx);
+      applyGenericRule(world, 'hover_leave', previousHoveredObjectName, prevIdx);
     }
-    if (currentHoveredName && hoveredEntityId !== null) {
-      applyMatchingRules(world, 'hover_enter', currentHoveredName, hoveredEntityId);
+    if (curName && hoveredEntityId !== null) {
+      applyGenericRule(world, 'hover_enter', curName, hoveredEntityId);
     }
-    previousHoveredObjectName = currentHoveredName;
+    previousHoveredObjectName = curName;
   }
 
-  // 2. Process key/click events
+  // 2. keys / clicks
   for (const key of pressed) {
-    applyMatchingRules(world, key, currentHoveredName, hoveredEntityId);
-  }
-
-  // ---- TEMPORARY DIAGNOSTIC ----
-  if (pressed.has('MouseLeft') && hoveredEntityId !== null) {
-    console.log(`[Input.Flush] Left click detected on entity ${hoveredEntityId} (${hoveredObjectName})`);
+    let handledBySelection = false;
+    if (currentSelectionEntity) {
+      const sel = world.getComponent<CurrentSelection>(currentSelectionEntity, 'CurrentSelection');
+      if (sel && sel.entityId !== null) {
+        for (const rule of inputRules) {
+          if (rule.key === key && rule.actionType === '' && rule.flagSystem !== '' && rule.object === '*') {
+            const selName = getPanelName(sel.entityId);
+            console.log(`[Input] Key "${key}" matched selected entity ${sel.entityId} "${selName}", setting flag "${rule.flagSystem}"`);
+            executeAction(world, rule, sel.entityId, selName);
+            handledBySelection = true;
+            break;
+          }
+        }
+      }
+    }
+    if (!handledBySelection) {
+      applyGenericRule(world, key, curName, hoveredEntityId);
+    }
   }
 
   // 3. Clear per‑frame accumulators
   pressed.clear();
-  Input._mouseDX = 0;
-  Input._mouseDY = 0;
-  Input._scroll = 0;
+  Input._mouseDX = 0; Input._mouseDY = 0; Input._scroll = 0;
 }
 
-// ---------------------------------------------------------------------------
-// Registration
-// ---------------------------------------------------------------------------
+function getPanelName(entityIndex: number): string | null {
+  const map = (window as any).__panelEntitiesMap as Map<string, Entity>;
+  if (!map) return null;
+  for (const [n, e] of map) if (e.index === entityIndex) return n;
+  return null;
+}
+
 registerSystemMethod('SETUE.Controls.Input', 'Load', Load);
 registerSystemMethod('SETUE.Controls.Input', 'Flush', Flush);
